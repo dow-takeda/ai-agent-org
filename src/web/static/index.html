@@ -250,6 +250,60 @@
     line-height: 1.8;
   }
   .welcome-icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* Approval dialog */
+  .approval-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: pop-in 0.2s ease-out;
+  }
+  .approval-dialog {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .approval-dialog h3 { font-size: 16px; margin-bottom: 12px; color: #333; }
+  .approval-dialog .summary { font-size: 14px; color: #555; margin-bottom: 12px; line-height: 1.5; }
+  .approval-dialog .details-pre {
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    white-space: pre-wrap;
+    font-family: monospace;
+  }
+  .approval-dialog textarea {
+    width: 100%;
+    min-height: 50px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+  }
+  .approval-btns {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .approval-btns button {
+    padding: 8px 20px;
+    border-radius: 20px;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-approve { background: #06C755; color: #fff; }
+  .btn-reject { background: #FF3B30; color: #fff; }
 </style>
 </head>
 <body>
@@ -290,10 +344,17 @@
 
 <script>
 const AGENTS = {
-  pm:       { name: "PM",       avatar: "📋", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
-  engineer: { name: "Engineer", avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
-  reviewer: { name: "Reviewer", avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
+  pm:            { name: "PM",           avatar: "📋", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
+  engineer:      { name: "Engineer",     avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
+  engineer_1:    { name: "Engineer 1",   avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
+  engineer_2:    { name: "Engineer 2",   avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
+  reviewer:      { name: "Reviewer",     avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
+  reviewer_1:    { name: "Reviewer 1",   avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
+  reviewer_2:    { name: "Reviewer 2",   avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
+  pm_tiebreak:   { name: "PM (裁定)",    avatar: "⚖️", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
 };
+
+let currentRunId = null;
 
 const chatArea = document.getElementById("chatArea");
 let typingEl = null;
@@ -414,6 +475,40 @@ function togglePatch(id) {
   document.getElementById(id).classList.toggle("open");
 }
 
+function showApprovalDialog(data) {
+  const overlay = document.createElement("div");
+  overlay.className = "approval-overlay";
+  overlay.innerHTML = `
+    <div class="approval-dialog">
+      <h3>承認リクエスト</h3>
+      <div class="summary">${escHtml(data.summary || "")}</div>
+      <div class="details-pre">${escHtml(JSON.stringify(data.details || {}, null, 2))}</div>
+      <textarea id="approvalFeedback" placeholder="フィードバック（任意）"></textarea>
+      <div class="approval-btns">
+        <button class="btn-reject" onclick="submitApproval(false, true)">終了</button>
+        <button class="btn-reject" onclick="submitApproval(false, false)">却下して再実行</button>
+        <button class="btn-approve" onclick="submitApproval(true, false)">承認</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+async function submitApproval(approved, terminate) {
+  const overlay = document.querySelector(".approval-overlay");
+  const feedback = document.getElementById("approvalFeedback")?.value || "";
+  if (overlay) overlay.remove();
+
+  if (!currentRunId) return;
+  const formData = new FormData();
+  formData.append("approved", approved);
+  formData.append("feedback", feedback);
+  formData.append("terminate", terminate);
+  await fetch(`/api/run/${currentRunId}/approve`, { method: "POST", body: formData });
+  const msg = terminate ? "終了を指示しました" : approved ? "承認しました" : "却下しました";
+  addSystemMessage(msg);
+}
+
 async function startRun() {
   const btn = document.getElementById("btnSend");
   const sourcePath = document.getElementById("sourcePath").value.trim();
@@ -437,36 +532,84 @@ async function startRun() {
   try {
     const res = await fetch("/api/run", { method: "POST", body: formData });
     const { run_id } = await res.json();
+    currentRunId = run_id;
 
     const eventSource = new EventSource(`/api/run/${run_id}/events`);
     eventSource.onmessage = (e) => {
       const event = JSON.parse(e.data);
+      const agentKey = event.agent || "pm";
       switch (event.type) {
         case "pipeline_start":
           addSystemMessage("パイプライン開始");
           break;
         case "agent_start":
-          showTyping(event.agent);
+          if (AGENTS[agentKey]) showTyping(agentKey);
           break;
         case "agent_complete":
-          if (event.agent === "pm") addBubble("pm", formatPM(event.data.output));
-          else if (event.agent === "engineer") addBubble("engineer", formatEngineer(event.data.output));
-          else if (event.agent === "reviewer") addBubble("reviewer", formatReviewer(event.data.output));
+          if (agentKey.startsWith("pm") && !agentKey.includes("tiebreak")) {
+            addBubble(agentKey, formatPM(event.data.output));
+          } else if (agentKey.startsWith("engineer")) {
+            addBubble(agentKey, formatEngineer(event.data.output));
+          } else if (agentKey.startsWith("reviewer")) {
+            addBubble(agentKey, formatReviewer(event.data.output));
+          } else if (agentKey === "pm_tiebreak") {
+            // PM裁定の出力はEngineerまたはReviewer形式
+            const output = event.data.output;
+            if (output.code_patches) addBubble("pm_tiebreak", formatEngineer(output));
+            else addBubble("pm_tiebreak", formatReviewer(output));
+          }
+          break;
+        case "approval_request":
+          removeTyping();
+          showApprovalDialog(event.data);
+          break;
+        case "discussion_round":
+          addSystemMessage(`${agentKey} 議論ラウンド ${event.data.round || "?"}`);
+          break;
+        case "discussion_converged":
+          addSystemMessage(`${agentKey} の議論が収束しました`);
+          break;
+        case "pm_tiebreak":
+          addSystemMessage("PM が裁定を行います...");
+          showTyping("pm");
+          break;
+        case "rollback_proposed":
+          addSystemMessage(`差し戻し提案: ${event.data.proposal?.reason || ""}`);
+          break;
+        case "rollback_review_start":
+          addSystemMessage("PM が差し戻し提案を精査中...");
+          showTyping("pm");
+          break;
+        case "rollback_review_complete":
+          removeTyping();
+          addSystemMessage("PM 差し戻し判断: " + (event.data.decision?.approved ? "承認" : "棄却"));
+          break;
+        case "rollback":
+          addSystemMessage(`差し戻し実行 (${event.data.attempt || "?"}回目): ${event.data.source} → ${event.data.target}`);
+          break;
+        case "rollback_limit_reached":
+          addSystemMessage(`差し戻し上限 (${event.data.count}回) に到達しました`);
+          break;
+        case "review_fail_retry":
+          addSystemMessage(`レビューFAIL → 修正指示で再実行 (${event.data.attempt || "?"}回目)`);
           break;
         case "pipeline_complete":
           addSystemMessage("パイプライン完了");
           eventSource.close();
           btn.disabled = false;
+          currentRunId = null;
           break;
         case "pipeline_error":
           removeTyping();
           addSystemMessage("エラー: " + (event.data.error || "不明なエラー"));
           eventSource.close();
           btn.disabled = false;
+          currentRunId = null;
           break;
         case "done":
           eventSource.close();
           btn.disabled = false;
+          currentRunId = null;
           break;
       }
     };

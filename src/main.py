@@ -1,9 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from src.schemas import ApprovalRequest, ApprovalResult
+
+
+def cli_approval(request: ApprovalRequest) -> ApprovalResult:
+    """CLI用の承認コールバック。ユーザーにinput()で承認/却下/終了を求める。"""
+    print(f"\n{'=' * 60}")
+    print(f"承認リクエスト: {request.summary}")
+    print(json.dumps(request.details, ensure_ascii=False, indent=2))
+    print(f"{'=' * 60}")
+    response = input("承認(y) / 却下して再実行(n) / 終了(q): ").strip().lower()
+    if response == "q":
+        return ApprovalResult(approved=False, terminate=True)
+    feedback = ""
+    if response != "y":
+        feedback = input("フィードバック（任意）: ").strip()
+    return ApprovalResult(approved=(response == "y"), feedback=feedback)
 
 
 def main() -> None:
@@ -91,6 +109,7 @@ def main() -> None:
         source_path=args.source,
         model=args.model,
         output_dir=output_dir,
+        on_approval=cli_approval,
     )
 
 
