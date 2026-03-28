@@ -7,6 +7,7 @@ from src.schemas import EngineerOutput
 class EngineerAgent(BaseAgent):
     prompt_file = "engineer.md"
     output_model = EngineerOutput
+    role = "engineer"
 
     def _build_user_message(self, **kwargs: str) -> str:
         pm_output = kwargs["pm_output"]

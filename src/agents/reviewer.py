@@ -7,6 +7,7 @@ from src.schemas import ReviewerOutput
 class ReviewerAgent(BaseAgent):
     prompt_file = "reviewer.md"
     output_model = ReviewerOutput
+    role = "reviewer"
 
     def _build_user_message(self, **kwargs: str) -> str:
         request = kwargs["request"]
