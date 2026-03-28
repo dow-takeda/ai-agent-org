@@ -4,13 +4,14 @@ import asyncio
 import uuid
 from pathlib import Path
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 
 from fastapi import FastAPI, Form, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.events import PipelineEvent
 from src.pipeline import run_pipeline
+from src.schemas import ApprovalRequest, ApprovalResult
 
 app = FastAPI(title="AI Agent Org - Demo")
 
@@ -18,6 +19,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # In-memory run queue store (demo tool, single user)
 _runs: dict[str, Queue[PipelineEvent | None]] = {}
+
+# In-memory approval store: run_id -> {event, request, result}
+_approval_requests: dict[str, dict] = {}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -47,6 +51,19 @@ async def start_run(
     def on_event(event: PipelineEvent) -> None:
         queue.put(event)
 
+    def web_approval(req: ApprovalRequest) -> ApprovalResult:
+        """Web用の承認コールバック。Eventでパイプラインスレッドをブロックする。"""
+        approval_event = Event()
+        _approval_requests[run_id] = {
+            "event": approval_event,
+            "request": req.model_dump(),
+            "result": None,
+        }
+        # 承認待ちイベントはon_event経由で既にキューに入っている
+        approval_event.wait()
+        result_data = _approval_requests.pop(run_id)["result"]
+        return ApprovalResult(**result_data)
+
     def run_in_thread() -> None:
         try:
             run_pipeline(
@@ -54,6 +71,7 @@ async def start_run(
                 source_path=source_path,
                 model=model,
                 on_event=on_event,
+                on_approval=web_approval,
             )
         except Exception as e:
             queue.put(PipelineEvent(type="pipeline_error", data={"error": str(e)}))
@@ -64,6 +82,20 @@ async def start_run(
     thread.start()
 
     return {"run_id": run_id}
+
+
+@app.post("/api/run/{run_id}/approve")
+async def approve_request(
+    run_id: str,
+    approved: bool = Form(...),
+    feedback: str = Form(default=""),
+) -> dict:
+    """ユーザー承認/却下を受け付ける。"""
+    if run_id not in _approval_requests:
+        return {"error": "no pending approval request"}
+    _approval_requests[run_id]["result"] = {"approved": approved, "feedback": feedback}
+    _approval_requests[run_id]["event"].set()
+    return {"ok": True}
 
 
 @app.get("/api/run/{run_id}/events")

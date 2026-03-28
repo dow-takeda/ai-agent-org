@@ -60,3 +60,25 @@ class BaseAgent:
             output_model=self.output_model,
             model=self.model,
         )
+
+    def run_discussion(self, **kwargs: str) -> tuple[BaseModel, dict]:
+        """他のエージェントの出力を踏まえて再検討し、統合出力を生成する。"""
+        own_output = kwargs["own_output"]
+        other_output = kwargs["other_output"]
+        remaining = {k: v for k, v in kwargs.items() if k not in ("own_output", "other_output")}
+        base_context = self._build_user_message(**remaining)
+        discussion_message = (
+            f"{base_context}\n\n"
+            f"[自分の前回の出力]\n{own_output}\n\n"
+            f"[相手エージェントの出力]\n{other_output}\n\n"
+            f"上記を踏まえ、最終的な出力を再検討してください。"
+            f"相手の指摘で妥当な点は取り入れ、"
+            f"自分の主張で重要な点は維持してください。"
+            f"最終的な統合出力を生成してください。"
+        )
+        return call_llm(
+            system_prompt=self.system_prompt,
+            user_message=discussion_message,
+            output_model=self.output_model,
+            model=self.model,
+        )
