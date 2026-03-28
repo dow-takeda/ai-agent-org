@@ -12,10 +12,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="AIエージェント組織: PM → Engineer → Reviewer パイプライン",
     )
-    parser.add_argument(
+    request_group = parser.add_mutually_exclusive_group(required=True)
+    request_group.add_argument(
         "--request",
-        required=True,
         help="改修要求（日本語テキスト）",
+    )
+    request_group.add_argument(
+        "--request-file",
+        help="改修要求を記載したファイルまたはディレクトリのパス",
     )
     parser.add_argument(
         "--source",
@@ -34,11 +38,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.request_file:
+        request_path = Path(args.request_file)
+        if not request_path.exists():
+            parser.error(f"指定されたパスが見つかりません: {args.request_file}")
+        if request_path.is_file():
+            request = request_path.read_text(encoding="utf-8")
+        else:
+            files = sorted(p for p in request_path.iterdir() if p.is_file())
+            if not files:
+                parser.error(f"ディレクトリにファイルがありません: {args.request_file}")
+            parts = []
+            for f in files:
+                parts.append(f"# {f.name}\n{f.read_text(encoding='utf-8')}")
+            request = "\n\n".join(parts)
+    else:
+        request = args.request
+
     from src.pipeline import run_pipeline
 
     output_dir = Path(args.output_dir) if args.output_dir else None
     run_pipeline(
-        request=args.request,
+        request=request,
         source_path=args.source,
         model=args.model,
         output_dir=output_dir,
