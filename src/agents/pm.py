@@ -7,6 +7,7 @@ from src.schemas import PMOutput
 class PMAgent(BaseAgent):
     prompt_file = "pm.md"
     output_model = PMOutput
+    role = "pm"
 
     def _build_user_message(self, **kwargs: str) -> str:
         request = kwargs["request"]
