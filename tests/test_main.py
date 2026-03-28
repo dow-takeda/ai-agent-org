@@ -61,36 +61,49 @@ class TestRequestOption:
         req_file = tmp_path / "request.md"
         req_file.write_text("要求", encoding="utf-8")
 
-        with patch(
-            "sys.argv",
-            [
-                "prog",
-                "--request", "テスト",
-                "--request-file", str(req_file),
-                "--source", source_dir,
-            ],
-        ), pytest.raises(SystemExit, match="2"):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "--request",
+                    "テスト",
+                    "--request-file",
+                    str(req_file),
+                    "--source",
+                    source_dir,
+                ],
+            ),
+            pytest.raises(SystemExit, match="2"),
+        ):
             main()
 
     def test_neither_option_error(self, source_dir):
-        with patch("sys.argv", ["prog", "--source", source_dir]), pytest.raises(
-            SystemExit, match="2"
+        with (
+            patch("sys.argv", ["prog", "--source", source_dir]),
+            pytest.raises(SystemExit, match="2"),
         ):
             main()
 
     def test_nonexistent_file_error(self, source_dir):
-        with patch(
-            "sys.argv",
-            ["prog", "--request-file", "/nonexistent/path.md", "--source", source_dir],
-        ), pytest.raises(SystemExit, match="2"):
+        with (
+            patch(
+                "sys.argv",
+                ["prog", "--request-file", "/nonexistent/path.md", "--source", source_dir],
+            ),
+            pytest.raises(SystemExit, match="2"),
+        ):
             main()
 
     def test_empty_directory_error(self, tmp_path, source_dir):
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
 
-        with patch(
-            "sys.argv",
-            ["prog", "--request-file", str(empty_dir), "--source", source_dir],
-        ), pytest.raises(SystemExit, match="2"):
+        with (
+            patch(
+                "sys.argv",
+                ["prog", "--request-file", str(empty_dir), "--source", source_dir],
+            ),
+            pytest.raises(SystemExit, match="2"),
+        ):
             main()

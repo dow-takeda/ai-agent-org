@@ -47,9 +47,7 @@ def main() -> None:
         else:
             files = sorted(p for p in request_path.iterdir() if p.is_file())
             if not files:
-                parser.error(
-                    f"ディレクトリにファイルがありません: {args.request_file}"
-                )
+                parser.error(f"ディレクトリにファイルがありません: {args.request_file}")
             parts = []
             for f in files:
                 parts.append(f"# {f.name}\n{f.read_text(encoding='utf-8')}")
