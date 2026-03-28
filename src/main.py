@@ -12,7 +12,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="AIエージェント組織: PM → Engineer → Reviewer パイプライン",
     )
-    request_group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Web UIモードでサーバーを起動",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Webサーバーのポート番号 (デフォルト: 8000)",
+    )
+    request_group = parser.add_mutually_exclusive_group(required=False)
     request_group.add_argument(
         "--request",
         help="改修要求（日本語テキスト）",
@@ -23,7 +34,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--source",
-        required=True,
+        default=None,
         help="対象ソースコードのディレクトリパス",
     )
     parser.add_argument(
@@ -37,6 +48,23 @@ def main() -> None:
         help="出力ディレクトリ (デフォルト: outputs/)",
     )
     args = parser.parse_args()
+
+    if args.web:
+        import uvicorn
+
+        from src.web.app import app
+
+        print(f"🌐 Web UI を起動します: http://localhost:{args.port}")
+        uvicorn.run(app, host="127.0.0.1", port=args.port)  # noqa: S104
+        return
+
+    # CLI mode: --request or --request-file and --source are required
+    if not args.request and not args.request_file:
+        parser.error(
+            "--request または --request-file のいずれかを指定してください（--web モード以外）"
+        )
+    if not args.source:
+        parser.error("--source を指定してください（--web モード以外）")
 
     if args.request_file:
         request_path = Path(args.request_file)
