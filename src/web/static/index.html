@@ -485,15 +485,16 @@ function showApprovalDialog(data) {
       <div class="details-pre">${escHtml(JSON.stringify(data.details || {}, null, 2))}</div>
       <textarea id="approvalFeedback" placeholder="フィードバック（任意）"></textarea>
       <div class="approval-btns">
-        <button class="btn-reject" onclick="submitApproval(false)">却下</button>
-        <button class="btn-approve" onclick="submitApproval(true)">承認</button>
+        <button class="btn-reject" onclick="submitApproval(false, true)">終了</button>
+        <button class="btn-reject" onclick="submitApproval(false, false)">却下して再実行</button>
+        <button class="btn-approve" onclick="submitApproval(true, false)">承認</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
 }
 
-async function submitApproval(approved) {
+async function submitApproval(approved, terminate) {
   const overlay = document.querySelector(".approval-overlay");
   const feedback = document.getElementById("approvalFeedback")?.value || "";
   if (overlay) overlay.remove();
@@ -502,8 +503,10 @@ async function submitApproval(approved) {
   const formData = new FormData();
   formData.append("approved", approved);
   formData.append("feedback", feedback);
+  formData.append("terminate", terminate);
   await fetch(`/api/run/${currentRunId}/approve`, { method: "POST", body: formData });
-  addSystemMessage(approved ? "承認しました" : "却下しました");
+  const msg = terminate ? "終了を指示しました" : approved ? "承認しました" : "却下しました";
+  addSystemMessage(msg);
 }
 
 async function startRun() {

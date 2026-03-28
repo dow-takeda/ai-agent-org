@@ -93,6 +93,9 @@ def test_approval_request_and_result():
     result_with_feedback = ApprovalResult(approved=False, feedback="修正して")
     assert result_with_feedback.feedback == "修正して"
 
+    result_terminate = ApprovalResult(approved=False, terminate=True)
+    assert result_terminate.terminate is True
+
 
 def test_engineer_output_with_rollback_proposal():
     output = EngineerOutput(

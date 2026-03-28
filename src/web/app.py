@@ -89,11 +89,16 @@ async def approve_request(
     run_id: str,
     approved: bool = Form(...),
     feedback: str = Form(default=""),
+    terminate: bool = Form(default=False),
 ) -> dict:
-    """ユーザー承認/却下を受け付ける。"""
+    """ユーザー承認/却下/終了を受け付ける。"""
     if run_id not in _approval_requests:
         return {"error": "no pending approval request"}
-    _approval_requests[run_id]["result"] = {"approved": approved, "feedback": feedback}
+    _approval_requests[run_id]["result"] = {
+        "approved": approved,
+        "feedback": feedback,
+        "terminate": terminate,
+    }
     _approval_requests[run_id]["event"].set()
     return {"ok": True}
 

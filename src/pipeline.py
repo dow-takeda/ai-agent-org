@@ -68,7 +68,8 @@ def _handle_pm_approval(
     logger: RunLogger,
     config: PipelineConfig,
     step_counter: list[int],
-) -> PMOutput:
+) -> PMOutput | None:
+    """PM出力のユーザー承認。Noneを返した場合はパイプライン終了。"""
     if on_approval is None:
         return pm_output
 
@@ -86,6 +87,11 @@ def _handle_pm_approval(
 
         if approval.approved:
             return pm_output
+
+        if approval.terminate:
+            print("  ユーザーの指示によりパイプラインを終了します。")
+            _emit(on_event, "pipeline_terminated")
+            return None
 
         attempts += 1
         print(f"  PM出力が却下されました。再実行します... (試行 {attempts})")
@@ -546,6 +552,12 @@ def run_pipeline(
         step_counter,
     )
 
+    if pm_output is None:
+        logger.write_summary()
+        _emit(on_event, "pipeline_complete")
+        print(f"\n詳細: {logger.run_dir}")
+        return logger.run_dir
+
     # --- メインループ: Engineer → Reviewer（差し戻しあり） ---
     rev_output = None
     while rollback_count < config.max_rollback_attempts:
@@ -609,7 +621,12 @@ def run_pipeline(
                     config,
                     step_counter,
                 )
+                if pm_output is None:
+                    break
                 continue
+
+        if pm_output is None:
+            break
 
         # --- Phase 3: Reviewer ---
         rev_output = _run_reviewer_phase(
@@ -676,6 +693,8 @@ def run_pipeline(
                         config,
                         step_counter,
                     )
+                    if pm_output is None:
+                        break
                 continue
 
         # PASS → 完了
@@ -694,6 +713,12 @@ def run_pipeline(
         max_attempts = config.max_rollback_attempts
         print(f"  レビューFAIL → Engineer再実行 ({rollback_count}/{max_attempts})")
         continue
+
+    if pm_output is None:
+        logger.write_summary()
+        _emit(on_event, "pipeline_complete")
+        print(f"\n詳細: {logger.run_dir}")
+        return logger.run_dir
 
     if rollback_count >= config.max_rollback_attempts:
         _emit(on_event, "rollback_limit_reached", count=rollback_count)

@@ -37,6 +37,7 @@ class ApprovalRequest(BaseModel):
 class ApprovalResult(BaseModel):
     approved: bool = Field(description="承認されたか")
     feedback: str = Field(default="", description="ユーザーからのフィードバック")
+    terminate: bool = Field(default=False, description="パイプラインを終了するか")
 
 
 class EngineerOutput(BaseModel):

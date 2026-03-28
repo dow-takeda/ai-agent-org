@@ -70,6 +70,10 @@ def _approval_no(req: ApprovalRequest) -> ApprovalResult:
     return ApprovalResult(approved=False, feedback="改善してください")
 
 
+def _approval_terminate(req: ApprovalRequest) -> ApprovalResult:
+    return ApprovalResult(approved=False, terminate=True)
+
+
 class TestHappyPath:
     def test_pass_pipeline(self, source_dir, config):
         with patch("src.agents.base.call_llm") as mock_llm:
@@ -216,6 +220,25 @@ class TestRollbackLimit:
                 config=config,
             )
             assert result.exists()
+
+
+class TestTerminate:
+    def test_terminate_at_pm_approval(self, source_dir, config):
+        """ユーザーが終了を指示した場合、PM出力までで終了する。"""
+        with patch("src.agents.base.call_llm") as mock_llm:
+            mock_llm.side_effect = [
+                (_pm_output(), {}),
+            ]
+            from src.pipeline import run_pipeline
+
+            result = run_pipeline(
+                request="テスト要求",
+                source_path=source_dir,
+                on_approval=_approval_terminate,
+                config=config,
+            )
+            assert result.exists()
+            assert mock_llm.call_count == 1  # PM only, no engineer/reviewer
 
 
 class TestReviewFailRetry:
