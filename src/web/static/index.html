@@ -405,21 +405,7 @@
 
     <div class="settings-toggle" onclick="toggleSettings()">⚙ エージェント設定 ▼</div>
     <div class="settings-panel" id="settingsPanel">
-      <div class="settings-row">
-        <label>PM</label>
-        <select id="pmPersonality"><option value="">パーソナリティ: デフォルト</option></select>
-        <select id="pmTone"><option value="">口調: デフォルト</option></select>
-      </div>
-      <div class="settings-row">
-        <label>Eng</label>
-        <select id="engineerPersonality"><option value="">パーソナリティ: デフォルト</option></select>
-        <select id="engineerTone"><option value="">口調: デフォルト</option></select>
-      </div>
-      <div class="settings-row">
-        <label>Rev</label>
-        <select id="reviewerPersonality"><option value="">パーソナリティ: デフォルト</option></select>
-        <select id="reviewerTone"><option value="">口調: デフォルト</option></select>
-      </div>
+      <!-- 動的にloadSettingsで生成 -->
     </div>
 
     <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください..."></textarea>
@@ -439,13 +425,23 @@ const AGENTS = {
   senior_engineer: { name: "Senior Eng", avatar: "🏗️", bubbleClass: "bubble-senior_engineer", avatarClass: "avatar-senior_engineer" },
   pm:            { name: "PM",           avatar: "📋", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
   engineer:      { name: "Engineer",     avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
-  engineer_1:    { name: "Engineer 1",   avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
-  engineer_2:    { name: "Engineer 2",   avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
   reviewer:      { name: "Reviewer",     avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
-  reviewer_1:    { name: "Reviewer 1",   avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
-  reviewer_2:    { name: "Reviewer 2",   avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
   pm_tiebreak:   { name: "PM (裁定)",    avatar: "⚖️", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
 };
+
+function _getAgent(key) {
+  if (AGENTS[key]) return AGENTS[key];
+  // engineer_3, reviewer_4 など動的エージェントにフォールバック
+  if (key.startsWith("engineer")) {
+    const num = key.replace("engineer_", "");
+    return { name: `Engineer ${num}`, avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" };
+  }
+  if (key.startsWith("reviewer")) {
+    const num = key.replace("reviewer_", "");
+    return { name: `Reviewer ${num}`, avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" };
+  }
+  return { name: key, avatar: "🤖", bubbleClass: "bubble-pm", avatarClass: "avatar-pm" };
+}
 
 let currentRunId = null;
 
@@ -456,35 +452,73 @@ function toggleSettings() {
   document.getElementById("settingsPanel").classList.toggle("open");
 }
 
+function _createRow(label, pId, tId, personalities, tones) {
+  const row = document.createElement("div");
+  row.className = "settings-row";
+  row.innerHTML = `<label>${label}</label>`;
+
+  const pSel = document.createElement("select");
+  pSel.id = pId;
+  pSel.innerHTML = '<option value="">パーソナリティ: デフォルト</option>';
+  for (const p of personalities) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.name} — ${p.focus}`;
+    pSel.appendChild(opt);
+  }
+  row.appendChild(pSel);
+
+  const tSel = document.createElement("select");
+  tSel.id = tId;
+  tSel.innerHTML = '<option value="">口調: デフォルト</option>';
+  for (const t of tones) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    tSel.appendChild(opt);
+  }
+  row.appendChild(tSel);
+  return row;
+}
+
 async function loadSettings() {
   try {
-    const [pRes, tRes] = await Promise.all([
+    const [cRes, pRes, tRes] = await Promise.all([
+      fetch("/api/config"),
       fetch("/api/personalities"),
       fetch("/api/tones"),
     ]);
+    const config = await cRes.json();
     const personalities = await pRes.json();
     const tones = await tRes.json();
+    const panel = document.getElementById("settingsPanel");
 
-    for (const role of ["pm", "engineer", "reviewer"]) {
-      const selectId = role === "pm" ? "pmPersonality" : role === "engineer" ? "engineerPersonality" : "reviewerPersonality";
-      const sel = document.getElementById(selectId);
-      for (const p of personalities[role] || []) {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        opt.textContent = `${p.name} — ${p.focus}`;
-        sel.appendChild(opt);
-      }
+    // Senior Engineer
+    panel.appendChild(_createRow("SE", "seniorEngineerPersonality", "seniorEngineerTone",
+      personalities.senior_engineer || [], tones));
+
+    // PM
+    panel.appendChild(_createRow("PM", "pmPersonality", "pmTone",
+      personalities.pm || [], tones));
+
+    // Engineers (人数に応じて動的生成)
+    const engCount = config.engineer_count || 1;
+    for (let i = 1; i <= engCount; i++) {
+      const label = engCount === 1 ? "Eng" : `Eng${i}`;
+      panel.appendChild(_createRow(label, `engineer${i}Personality`, `engineer${i}Tone`,
+        personalities.engineer || [], tones));
     }
 
-    for (const selId of ["pmTone", "engineerTone", "reviewerTone"]) {
-      const sel = document.getElementById(selId);
-      for (const t of tones) {
-        const opt = document.createElement("option");
-        opt.value = t.id;
-        opt.textContent = t.name;
-        sel.appendChild(opt);
-      }
+    // Reviewers (人数に応じて動的生成)
+    const revCount = config.reviewer_count || 1;
+    for (let i = 1; i <= revCount; i++) {
+      const label = revCount === 1 ? "Rev" : `Rev${i}`;
+      panel.appendChild(_createRow(label, `reviewer${i}Personality`, `reviewer${i}Tone`,
+        personalities.reviewer || [], tones));
     }
+
+    // 設定値を保存（startRunで使用）
+    window._agentConfig = { engineerCount: engCount, reviewerCount: revCount };
   } catch (e) {
     console.warn("Failed to load settings:", e);
   }
@@ -511,7 +545,7 @@ function addSystemMessage(text) {
 
 function showTyping(agentKey) {
   removeTyping();
-  const agent = AGENTS[agentKey];
+  const agent = _getAgent(agentKey);
   const row = document.createElement("div");
   row.className = "msg-row";
   row.innerHTML = `
@@ -537,7 +571,7 @@ function removeTyping() {
 
 function addBubble(agentKey, html, nameOverride) {
   removeTyping();
-  const agent = AGENTS[agentKey];
+  const agent = _getAgent(agentKey);
   const displayName = nameOverride || agent.name;
   const row = document.createElement("div");
   row.className = "msg-row";
@@ -712,12 +746,20 @@ async function startRun() {
   if (fileInput.files.length) formData.append("request_file", fileInput.files[0]);
 
   // Personality & tone settings
-  formData.append("pm_personality", document.getElementById("pmPersonality").value);
-  formData.append("engineer_personality", document.getElementById("engineerPersonality").value);
-  formData.append("reviewer_personality", document.getElementById("reviewerPersonality").value);
-  formData.append("pm_tone", document.getElementById("pmTone").value);
-  formData.append("engineer_tone", document.getElementById("engineerTone").value);
-  formData.append("reviewer_tone", document.getElementById("reviewerTone").value);
+  const _val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
+  formData.append("senior_engineer_personality", _val("seniorEngineerPersonality"));
+  formData.append("pm_personality", _val("pmPersonality"));
+  formData.append("senior_engineer_tone", _val("seniorEngineerTone"));
+  formData.append("pm_tone", _val("pmTone"));
+  const cfg = window._agentConfig || { engineerCount: 1, reviewerCount: 1 };
+  for (let i = 1; i <= cfg.engineerCount; i++) {
+    formData.append(`engineer${i}_personality`, _val(`engineer${i}Personality`));
+    formData.append(`engineer${i}_tone`, _val(`engineer${i}Tone`));
+  }
+  for (let i = 1; i <= cfg.reviewerCount; i++) {
+    formData.append(`reviewer${i}_personality`, _val(`reviewer${i}Personality`));
+    formData.append(`reviewer${i}_tone`, _val(`reviewer${i}Tone`));
+  }
 
   try {
     const res = await fetch("/api/run", { method: "POST", body: formData });
@@ -729,14 +771,14 @@ async function startRun() {
       const event = JSON.parse(e.data);
       const agentKey = event.agent || "pm";
       const pName = event.data?.personality_name;
-      const displayName = pName ? `${(AGENTS[agentKey] || {}).name || agentKey} (${pName})` : null;
+      const displayName = pName ? `${_getAgent(agentKey).name} (${pName})` : null;
 
       switch (event.type) {
         case "pipeline_start":
           addSystemMessage("パイプライン開始");
           break;
         case "agent_start":
-          if (AGENTS[agentKey]) showTyping(agentKey);
+          showTyping(agentKey);
           break;
         case "agent_complete":
           if (agentKey === "senior_engineer") {
