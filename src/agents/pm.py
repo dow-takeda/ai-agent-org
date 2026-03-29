@@ -9,10 +9,17 @@ class PMAgent(BaseAgent):
     output_model = PMOutput
     role = "pm"
 
-    def _build_user_message(self, **kwargs: str) -> str:
+    def _build_user_message(self, **kwargs: str) -> list[dict]:
         request = kwargs["request"]
         source_context = kwargs["source_context"]
-        return f"[改修要求]\n{request}\n\n[対象ソースコード]\n{source_context}"
+        return [
+            {"type": "text", "text": f"[改修要求]\n{request}"},
+            {
+                "type": "text",
+                "text": f"[対象ソースコード]\n{source_context}",
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
 
     def run_rollback_review(self, proposal: RollbackProposal) -> tuple[PMRollbackDecision, dict]:
         """差し戻し提案を精査し、承認/棄却を判断する。"""
