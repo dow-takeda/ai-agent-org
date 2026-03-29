@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 from pathlib import Path
 
@@ -97,8 +98,9 @@ def load_source_context(source_path: str) -> str:
 
     estimated_tokens = _estimate_tokens(full_context)
     if estimated_tokens > TOKEN_WARNING_THRESHOLD:
+        ts = datetime.datetime.now().strftime("%H:%M:%S")  # noqa: DTZ005
         print(
-            f"⚠ ソースコンテキストが大きすぎる可能性があります "
+            f"[{ts}] ⚠ ソースコンテキストが大きすぎる可能性があります "
             f"(推定 {estimated_tokens:,} トークン)。"
             f"--source で対象ディレクトリを絞ることを検討してください。",
         )

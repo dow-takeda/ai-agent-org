@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from collections.abc import Callable
 from pathlib import Path
 
@@ -23,10 +24,16 @@ from src.schemas import (
 ApprovalCallback = Callable[[ApprovalRequest], ApprovalResult] | None
 
 
+def _tprint(*args: object, **kwargs: object) -> None:
+    """タイムスタンプ付きprint。"""
+    ts = datetime.datetime.now().strftime("%H:%M:%S")  # noqa: DTZ005
+    print(f"[{ts}]", *args, **kwargs)
+
+
 def _print_usage(label: str, usage: dict) -> None:
     in_tok = usage.get("input_tokens", "?")
     out_tok = usage.get("output_tokens", "?")
-    print(f"  {label} (入力: {in_tok}, 出力: {out_tok} トークン)")
+    _tprint(f"  {label} (入力: {in_tok}, 出力: {out_tok} トークン)")
 
 
 def _emit(on_event: OnEvent, event_type: str, agent: str | None = None, **data: object) -> None:
@@ -44,7 +51,7 @@ def _run_senior_engineer_phase(
     personality_id: str | None = None,
     tone_id: str | None = None,
 ) -> SeniorEngineerOutput:
-    print("🔹 シニアエンジニア 影響範囲分析中...")
+    _tprint("🔹 シニアエンジニア 影響範囲分析中...")
     _emit(on_event, "agent_start", agent="senior_engineer")
     agent = SeniorEngineerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
 
@@ -77,7 +84,7 @@ def _run_pm_phase(
     personality_id: str | None = None,
     tone_id: str | None = None,
 ) -> PMOutput:
-    print("🔹 PM エージェント実行中...")
+    _tprint("🔹 PM エージェント実行中...")
     _emit(on_event, "agent_start", agent="pm")
     pm_agent = PMAgent(model=model, personality_id=personality_id, tone_id=tone_id)
 
@@ -140,12 +147,12 @@ def _handle_pm_approval(
             return pm_output
 
         if approval.terminate:
-            print("  ユーザーの指示によりパイプラインを終了します。")
+            _tprint("  ユーザーの指示によりパイプラインを終了します。")
             _emit(on_event, "pipeline_terminated")
             return None
 
         attempts += 1
-        print(f"  PM出力が却下されました。再実行します... (試行 {attempts})")
+        _tprint(f"  PM出力が却下されました。再実行します... (試行 {attempts})")
         rollback_history.append({"from": "user", "reason": approval.feedback})
         pm_output = _run_pm_phase(
             request + f"\n\n[ユーザーフィードバック]\n{approval.feedback}",
@@ -159,7 +166,7 @@ def _handle_pm_approval(
             tone_id=tone_id,
         )
 
-    print("  PM承認の再試行上限に到達しました。最新の出力で続行します。")
+    _tprint("  PM承認の再試行上限に到達しました。最新の出力で続行します。")
     return pm_output
 
 
@@ -274,7 +281,7 @@ def _run_engineer_phase(
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
         _emit(on_event, "discussion_round", agent="engineer", round=round_num + 1)
-        print(f"  Engineer 議論ラウンド {round_num + 1}...")
+        _tprint(f"  Engineer 議論ラウンド {round_num + 1}...")
 
         eng1 = EngineerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
         out1, _ = eng1.run_discussion(
@@ -301,7 +308,7 @@ def _run_engineer_phase(
 
     # PM裁定
     _emit(on_event, "pm_tiebreak", agent="pm")
-    print("  Engineer間の議論が収束しませんでした。PMが裁定します...")
+    _tprint("  Engineer間の議論が収束しませんでした。PMが裁定します...")
     return _pm_tiebreak_engineer(pm_output, out1, out2, model, on_event, logger, step_counter)
 
 
@@ -456,7 +463,7 @@ def _run_reviewer_phase(
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
         _emit(on_event, "discussion_round", agent="reviewer", round=round_num + 1)
-        print(f"  Reviewer 議論ラウンド {round_num + 1}...")
+        _tprint(f"  Reviewer 議論ラウンド {round_num + 1}...")
 
         rev1 = ReviewerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
         out1, _ = rev1.run_discussion(
@@ -493,7 +500,7 @@ def _run_reviewer_phase(
 
     # PM裁定
     _emit(on_event, "pm_tiebreak", agent="pm")
-    print("  Reviewer間の議論が収束しませんでした。PMが裁定します...")
+    _tprint("  Reviewer間の議論が収束しませんでした。PMが裁定します...")
     return _pm_tiebreak_reviewer(pm_output, out1, out2, model, on_event, logger, step_counter)
 
 
@@ -542,8 +549,8 @@ def _handle_rollback(
     """差し戻し提案をPMが精査し、必要に応じてユーザーに最終確認する。"""
     proposal_data = proposal.model_dump()
     _emit(on_event, "rollback_proposed", agent=proposal.source_agent, proposal=proposal_data)
-    print(f"  差し戻し提案: {proposal.source_agent} → {proposal.target_agent}")
-    print(f"  理由: {proposal.reason}")
+    _tprint(f"  差し戻し提案: {proposal.source_agent} → {proposal.target_agent}")
+    _tprint(f"  理由: {proposal.reason}")
 
     # PM精査
     _emit(on_event, "rollback_review_start", agent="pm")
@@ -560,11 +567,11 @@ def _handle_rollback(
     )
 
     if pm_decision.approved:
-        print(f"  PMが差し戻しを承認しました: {pm_decision.reason}")
+        _tprint(f"  PMが差し戻しを承認しました: {pm_decision.reason}")
         return True, pm_decision.instructions
 
     # PM棄却 → ユーザーに最終確認
-    print(f"  PMが差し戻しを棄却しました: {pm_decision.reason}")
+    _tprint(f"  PMが差し戻しを棄却しました: {pm_decision.reason}")
     if on_approval is not None:
         _emit(on_event, "approval_request", approval_type="rollback_override")
         approval = on_approval(
@@ -579,10 +586,10 @@ def _handle_rollback(
         )
         _emit(on_event, "approval_result", approved=approval.approved)
         if approval.approved:
-            print("  ユーザーが差し戻しを承認しました（PMの判断を覆しました）")
+            _tprint("  ユーザーが差し戻しを承認しました（PMの判断を覆しました）")
             return True, [approval.feedback] if approval.feedback else []
 
-    print("  差し戻しは棄却されました。パイプラインを続行します。")
+    _tprint("  差し戻しは棄却されました。パイプラインを続行します。")
     return False, []
 
 
@@ -679,7 +686,7 @@ def run_pipeline(
     if pm_output is None:
         logger.write_summary()
         _emit(on_event, "pipeline_complete")
-        print(f"\n詳細: {logger.run_dir}")
+        _tprint(f"\n詳細: {logger.run_dir}")
         return logger.run_dir
 
     # --- 対象ファイルのみの全文を生成 ---
@@ -728,7 +735,7 @@ def run_pipeline(
                     target="pm",
                     attempt=rollback_count,
                 )
-                print(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
+                _tprint(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
                 pm_output = _run_pm_phase(
                     request,
                     senior_output_text,
@@ -807,7 +814,7 @@ def run_pipeline(
                     target=target,
                     attempt=rollback_count,
                 )
-                print(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
+                _tprint(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
                 if target == "pm":
                     pm_output = _run_pm_phase(
                         request,
@@ -853,30 +860,30 @@ def run_pipeline(
         )
         _emit(on_event, "review_fail_retry", attempt=rollback_count)
         max_attempts = config.max_rollback_attempts
-        print(f"  レビューFAIL → Engineer再実行 ({rollback_count}/{max_attempts})")
+        _tprint(f"  レビューFAIL → Engineer再実行 ({rollback_count}/{max_attempts})")
         continue
 
     if pm_output is None:
         logger.write_summary()
         _emit(on_event, "pipeline_complete")
-        print(f"\n詳細: {logger.run_dir}")
+        _tprint(f"\n詳細: {logger.run_dir}")
         return logger.run_dir
 
     if rollback_count >= config.max_rollback_attempts:
         _emit(on_event, "rollback_limit_reached", count=rollback_count)
         max_att = config.max_rollback_attempts
-        print(f"\n⚠️ 差し戻し上限 ({max_att}) に到達。最終結果で出力します。")
+        _tprint(f"\n⚠️ 差し戻し上限 ({max_att}) に到達。最終結果で出力します。")
 
     logger.write_summary()
     _emit(on_event, "pipeline_complete")
 
     if rev_output:
         result_label = "✅ PASS" if rev_output.review_result == "PASS" else "❌ FAIL"
-        print(f"\n結果: {result_label}")
+        _tprint(f"\n結果: {result_label}")
         if rev_output.issues:
-            print("指摘事項:")
+            _tprint("指摘事項:")
             for issue in rev_output.issues:
-                print(f"  - {issue}")
+                _tprint(f"  - {issue}")
 
-    print(f"\n詳細: {logger.run_dir}")
+    _tprint(f"\n詳細: {logger.run_dir}")
     return logger.run_dir
