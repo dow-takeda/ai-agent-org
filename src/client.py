@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from typing import TypeVar
@@ -95,7 +96,11 @@ def call_llm(
             if attempt == MAX_RETRIES - 1:
                 raise
             wait = min(INITIAL_RETRY_WAIT * (2**attempt), MAX_RETRY_WAIT)
-            print(f"  ⏳ レートリミット到達。{wait}秒後にリトライ ({attempt + 1}/{MAX_RETRIES})...")
+            ts = datetime.datetime.now().strftime("%H:%M:%S")  # noqa: DTZ005
+            print(
+                f"[{ts}]   ⏳ レートリミット到達。"
+                f"{wait}秒後にリトライ ({attempt + 1}/{MAX_RETRIES})..."
+            )
             time.sleep(wait)
 
     if response.stop_reason == "max_tokens":
