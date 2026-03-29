@@ -235,6 +235,65 @@
     margin-top: 10px;
   }
 
+  .btn-browse {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .btn-browse:hover { background: #eee; }
+
+  .file-browser {
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    max-height: 250px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .file-browser-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f0f0f0;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+    color: #555;
+  }
+  .file-browser-header span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn-browser-up, .btn-browser-select {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .btn-browser-up:hover, .btn-browser-select:hover { background: #eee; }
+  .file-browser-list {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .file-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .file-entry:hover { background: #e8e8e8; }
+  .file-entry-icon { font-size: 14px; flex-shrink: 0; }
+  .file-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   .btn-send {
     margin-left: auto;
     background: #06C755;
@@ -386,6 +445,15 @@
     <div class="form-row">
       <label>ソースパス</label>
       <input type="text" id="sourcePath" name="source_path" placeholder="/path/to/target/source" required>
+      <button type="button" class="btn-browse" onclick="toggleBrowser()">📂</button>
+    </div>
+    <div class="file-browser" id="fileBrowser" style="display:none">
+      <div class="file-browser-header">
+        <span id="browserPath">...</span>
+        <button type="button" class="btn-browser-up" onclick="browseUp()">⬆ 上へ</button>
+        <button type="button" class="btn-browser-select" onclick="selectCurrentDir()">✓ このディレクトリを選択</button>
+      </div>
+      <div class="file-browser-list" id="browserList"></div>
     </div>
 
     <div class="settings-toggle" onclick="toggleSettings()">⚙ エージェント設定 ▼</div>
@@ -393,7 +461,7 @@
       <!-- 動的にloadSettingsで生成 -->
     </div>
 
-    <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください..."></textarea>
+    <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください（ファイルは相対パスで指定: 例 src/context.py）"></textarea>
     <div class="bottom-row">
       <button type="button" class="btn-send" id="btnSend" onclick="startRun()">▶</button>
     </div>
@@ -499,9 +567,77 @@ async function loadSettings() {
 
     // 設定値を保存（startRunで使用）
     window._agentConfig = { engineerCount: engCount, reviewerCount: revCount };
+
+    // コンテナ内ならデフォルトソースパスを設定
+    if (config.default_source) {
+      const sp = document.getElementById("sourcePath");
+      if (!sp.value) sp.value = config.default_source;
+    }
   } catch (e) {
     console.warn("Failed to load settings:", e);
   }
+}
+
+// --- ファイルブラウザ ---
+let _browserCurrentPath = "";
+
+function toggleBrowser() {
+  const el = document.getElementById("fileBrowser");
+  if (el.style.display === "none") {
+    const sp = document.getElementById("sourcePath").value.trim();
+    const startPath = sp || "/";
+    browseTo(startPath);
+    el.style.display = "flex";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+async function browseTo(path) {
+  _browserCurrentPath = path;
+  document.getElementById("browserPath").textContent = path;
+  const list = document.getElementById("browserList");
+  list.innerHTML = "<div style='padding:8px;color:#999;font-size:12px'>読み込み中...</div>";
+  try {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (data.error) {
+      list.innerHTML = `<div style='padding:8px;color:#c00;font-size:12px'>${data.error}</div>`;
+      return;
+    }
+    list.innerHTML = "";
+    for (const entry of data.entries) {
+      const div = document.createElement("div");
+      div.className = "file-entry";
+      const icon = entry.is_dir ? "📁" : "📄";
+      div.innerHTML = `<span class="file-entry-icon">${icon}</span><span class="file-entry-name">${entry.name}</span>`;
+      if (entry.is_dir) {
+        div.onclick = () => browseTo(entry.path);
+      } else {
+        div.onclick = () => {
+          document.getElementById("sourcePath").value = entry.path;
+          document.getElementById("fileBrowser").style.display = "none";
+        };
+      }
+      list.appendChild(div);
+    }
+    if (data.entries.length === 0) {
+      list.innerHTML = "<div style='padding:8px;color:#999;font-size:12px'>空のディレクトリ</div>";
+    }
+  } catch (e) {
+    list.innerHTML = `<div style='padding:8px;color:#c00;font-size:12px'>エラー: ${e.message}</div>`;
+  }
+}
+
+function browseUp() {
+  if (!_browserCurrentPath || _browserCurrentPath === "/") return;
+  const parent = _browserCurrentPath.replace(/\/[^/]+\/?$/, "") || "/";
+  browseTo(parent);
+}
+
+function selectCurrentDir() {
+  document.getElementById("sourcePath").value = _browserCurrentPath;
+  document.getElementById("fileBrowser").style.display = "none";
 }
 
 document.addEventListener("DOMContentLoaded", loadSettings);

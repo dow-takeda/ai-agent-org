@@ -36,10 +36,39 @@ async def get_config() -> dict:
     from src.config import load_config
 
     config = load_config()
+    is_container = Path("/.dockerenv").exists()
     return {
         "engineer_count": config.engineer_count,
         "reviewer_count": config.reviewer_count,
+        "is_container": is_container,
+        "default_source": "/workspace/source" if is_container else "",
     }
+
+
+@app.get("/api/browse")
+async def browse_directory(path: str = "") -> dict:
+    """ディレクトリの内容を返す（ファイルツリーブラウザ用）。"""
+    from src.context import SKIP_DIRS
+
+    target = Path(path) if path else None
+    if not target or not target.is_dir():
+        return {"error": "invalid path", "entries": []}
+
+    entries = []
+    try:
+        for item in sorted(target.iterdir()):
+            if item.name.startswith(".") or item.name in SKIP_DIRS:
+                continue
+            entries.append(
+                {
+                    "name": item.name,
+                    "path": str(item),
+                    "is_dir": item.is_dir(),
+                }
+            )
+    except PermissionError:
+        return {"error": "permission denied", "entries": []}
+    return {"path": str(target), "entries": entries}
 
 
 @app.get("/api/personalities")

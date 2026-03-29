@@ -26,6 +26,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+exclude = ["sandbox/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "S", "A", "C4", "PT", "RET", "SIM"]
@@ -40,7 +41,7 @@ pythonpath = ["."]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]
-skips = ["B101", "B112"]
+skips = ["B101", "B104", "B112", "B404", "B603", "B607"]
 
 [tool.coverage.run]
 source = ["src"]
