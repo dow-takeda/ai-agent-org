@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class PMOutput(BaseModel):
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
     requirements: list[str] = Field(description="要件一覧")
     tasks: list[str] = Field(description="実装タスク一覧")
     acceptance_criteria: list[str] = Field(description="完了条件一覧")
@@ -41,6 +42,7 @@ class ApprovalResult(BaseModel):
 
 
 class EngineerOutput(BaseModel):
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
     design_notes: str = Field(description="設計メモ")
     code_patches: list[CodePatch] = Field(description="コード変更一覧")
     assumptions: list[str] = Field(description="前提事項一覧")
@@ -50,6 +52,7 @@ class EngineerOutput(BaseModel):
 
 
 class ReviewerOutput(BaseModel):
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
     review_result: str = Field(description="PASS または FAIL")
     issues: list[str] = Field(description="指摘事項一覧")
     fix_instructions: list[str] = Field(description="修正指示一覧")

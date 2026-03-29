@@ -12,17 +12,20 @@ from src.schemas import (
 
 def test_pm_output_roundtrip():
     data = {
+        "summary": "まとめたわよ〜",
         "requirements": ["要件1"],
         "tasks": ["タスク1"],
         "acceptance_criteria": ["条件1"],
     }
     output = PMOutput.model_validate(data)
     assert output.requirements == ["要件1"]
+    assert output.summary == "まとめたわよ〜"
     assert output.model_dump() == data
 
 
 def test_engineer_output_roundtrip():
     data = {
+        "summary": "実装したわよ〜",
         "design_notes": "設計メモ",
         "code_patches": [
             {"file_path": "app.py", "patch": "print('hello')", "description": "追加"},
@@ -35,12 +38,15 @@ def test_engineer_output_roundtrip():
 
 
 def test_reviewer_output_pass():
-    output = ReviewerOutput(review_result="PASS", issues=[], fix_instructions=[])
+    output = ReviewerOutput(
+        summary="問題なしよ〜", review_result="PASS", issues=[], fix_instructions=[]
+    )
     assert output.review_result == "PASS"
 
 
 def test_reviewer_output_fail():
     output = ReviewerOutput(
+        summary="問題あるわよ〜",
         review_result="FAIL",
         issues=["問題1"],
         fix_instructions=["修正1"],
@@ -99,6 +105,7 @@ def test_approval_request_and_result():
 
 def test_engineer_output_with_rollback_proposal():
     output = EngineerOutput(
+        summary="差し戻し提案あるわよ",
         design_notes="設計",
         code_patches=[],
         assumptions=[],
@@ -115,6 +122,7 @@ def test_engineer_output_with_rollback_proposal():
 
 def test_engineer_output_without_rollback_proposal():
     output = EngineerOutput(
+        summary="実装したわよ〜",
         design_notes="設計",
         code_patches=[],
         assumptions=[],
@@ -124,6 +132,7 @@ def test_engineer_output_without_rollback_proposal():
 
 def test_reviewer_output_with_rollback_proposal():
     output = ReviewerOutput(
+        summary="差し戻すわよ",
         review_result="FAIL",
         issues=["問題"],
         fix_instructions=["修正"],

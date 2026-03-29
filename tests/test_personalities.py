@@ -4,9 +4,12 @@ import pytest
 
 from src.personalities import (
     Personality,
+    Tone,
     get_personality,
+    get_tone,
     list_personality_ids,
     load_personalities,
+    load_tones,
 )
 
 ROLES = ("pm", "engineer", "reviewer")
@@ -29,7 +32,6 @@ class TestLoadPersonalities:
             assert p.role == role
             assert p.focus
             assert p.description
-            assert p.tone
             assert len(p.traits) >= 1
             assert p.system_prompt_extra
 
@@ -61,6 +63,52 @@ class TestListPersonalityIds:
         ids = list_personality_ids(role)
         assert len(ids) >= MIN_PERSONALITIES
         assert all(isinstance(i, str) for i in ids)
+
+
+class TestTones:
+    def test_load_tones(self):
+        tones = load_tones()
+        assert len(tones) >= 4
+        for t in tones:
+            assert isinstance(t, Tone)
+            assert t.id
+            assert t.name
+            assert t.prompt_instruction
+
+    def test_get_tone_existing(self):
+        t = get_tone("onee")
+        assert t.id == "onee"
+        assert "おネエ" in t.name
+
+    def test_get_tone_nonexistent_raises(self):
+        with pytest.raises(ValueError, match="not found"):
+            get_tone("nonexistent")
+
+
+class TestAgentToneIntegration:
+    def test_agent_with_tone(self):
+        from src.agents.pm import PMAgent
+
+        agent = PMAgent(tone_id="onee")
+        assert agent.tone is not None
+        assert "口調" in agent.system_prompt
+        assert "おネエ" in agent.system_prompt
+
+    def test_agent_with_personality_and_tone(self):
+        from src.agents.engineer import EngineerAgent
+
+        agent = EngineerAgent(personality_id="performance", tone_id="samurai")
+        assert agent.personality is not None
+        assert agent.tone is not None
+        assert "パフォーマンス" in agent.system_prompt
+        assert "でござる" in agent.system_prompt
+
+    def test_agent_without_tone(self):
+        from src.agents.pm import PMAgent
+
+        agent = PMAgent()
+        assert agent.tone is None
+        assert "## 口調" not in agent.system_prompt
 
 
 class TestAgentPersonalityIntegration:

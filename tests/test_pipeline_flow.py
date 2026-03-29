@@ -33,11 +33,18 @@ def config():
     cfg.pm_count = 1
     cfg.engineer_count = 1
     cfg.reviewer_count = 1
+    cfg.default_pm_personality = None
+    cfg.default_engineer_personality = None
+    cfg.default_reviewer_personality = None
+    cfg.default_pm_tone = "onee"
+    cfg.default_engineer_tone = "onee"
+    cfg.default_reviewer_tone = "onee"
     return cfg
 
 
 def _pm_output():
     return PMOutput(
+        summary="要件をまとめたわよ〜",
         requirements=["要件1"],
         tasks=["タスク1"],
         acceptance_criteria=["条件1"],
@@ -46,6 +53,7 @@ def _pm_output():
 
 def _eng_output(rollback=None):
     return EngineerOutput(
+        summary="実装してみたわよ〜",
         design_notes="設計メモ",
         code_patches=[CodePatch(file_path="app.py", patch="print('hi')", description="追加")],
         assumptions=["前提1"],
@@ -55,6 +63,7 @@ def _eng_output(rollback=None):
 
 def _rev_output(result="PASS", rollback=None):
     return ReviewerOutput(
+        summary="レビューしたわよ〜",
         review_result=result,
         issues=[] if result == "PASS" else ["問題1"],
         fix_instructions=[] if result == "PASS" else ["修正1"],

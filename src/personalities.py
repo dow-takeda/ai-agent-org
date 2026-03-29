@@ -16,9 +16,37 @@ class Personality(BaseModel):
     role: str
     focus: str
     description: str
-    tone: str = "おネエ言葉"
     traits: list[str]
     system_prompt_extra: str
+
+
+class Tone(BaseModel):
+    id: str
+    name: str
+    description: str
+    prompt_instruction: str
+
+
+def load_tones() -> list[Tone]:
+    """口調一覧をYAMLから読み込む。"""
+    path = PERSONALITIES_DIR / "tones.yaml"
+    if not path.exists():
+        msg = f"Tones file not found: {path}"
+        raise FileNotFoundError(msg)
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return [Tone(**item) for item in data]
+
+
+def get_tone(tone_id: str) -> Tone:
+    """指定されたIDに一致する口調を返す。"""
+    tones = load_tones()
+    for t in tones:
+        if t.id == tone_id:
+            return t
+    available = [t.id for t in tones]
+    msg = f"Tone '{tone_id}' not found. Available: {available}"
+    raise ValueError(msg)
 
 
 def load_personalities(role: str) -> list[Personality]:
