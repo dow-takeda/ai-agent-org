@@ -104,3 +104,78 @@ def load_source_context(source_path: str) -> str:
         )
 
     return full_context
+
+
+def _extract_skeleton_lines(text: str, suffix: str) -> list[str]:
+    """ファイル内容からスケルトン行（構造情報）を抽出する。"""
+    if suffix == ".py":
+        keywords = ("import ", "from ", "class ", "def ", "    def ")
+        return [
+            line
+            for line in text.splitlines()
+            if any(line.lstrip().startswith(kw.lstrip()) for kw in keywords)
+        ]
+    # 非Pythonファイル: 先頭20行を抽出
+    lines = text.splitlines()
+    return lines[:20]
+
+
+def load_source_skeleton(source_path: str) -> str:
+    """対象ディレクトリのファイルツリーと各ファイルのスケルトン（構造情報のみ）を返す。
+
+    Pythonファイル: import文、class定義、def定義のみ抽出。
+    非Pythonファイル: 先頭20行を抽出。
+    """
+    root = Path(source_path).resolve()
+    if not root.is_dir():
+        raise ValueError(f"指定されたパスはディレクトリではありません: {source_path}")
+
+    file_paths: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
+        dirnames.sort()
+        for fname in sorted(filenames):
+            fpath = Path(dirpath) / fname
+            if _is_source_file(fpath) and fpath.stat().st_size <= MAX_FILE_SIZE:
+                file_paths.append(fpath)
+
+    # ファイルツリー
+    tree_lines = ["=== ファイルツリー ==="]
+    for fpath in file_paths:
+        tree_lines.append(str(fpath.relative_to(root)))
+
+    # スケルトン
+    content_parts = ["\n".join(tree_lines), ""]
+    for fpath in file_paths:
+        rel = fpath.relative_to(root)
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: S112
+            continue
+        skeleton_lines = _extract_skeleton_lines(text, fpath.suffix.lower())
+        if skeleton_lines:
+            content_parts.append(f"=== {rel} ===")
+            content_parts.append("\n".join(skeleton_lines))
+            content_parts.append("")
+
+    return "\n".join(content_parts)
+
+
+def load_files_content(source_path: str, file_paths: list[str]) -> str:
+    """指定されたファイルパスのみの全文を結合して返す。"""
+    root = Path(source_path).resolve()
+    content_parts: list[str] = []
+
+    for rel_path in file_paths:
+        fpath = root / rel_path
+        if not fpath.is_file():
+            continue
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: S112
+            continue
+        content_parts.append(f"=== {rel_path} ===")
+        content_parts.append(text)
+        content_parts.append("")
+
+    return "\n".join(content_parts)

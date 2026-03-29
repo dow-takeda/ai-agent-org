@@ -13,7 +13,7 @@ class ReviewerAgent(BaseAgent):
         request = kwargs["request"]
         pm_output = kwargs["pm_output"]
         engineer_output = kwargs["engineer_output"]
-        source_context = kwargs["source_context"]
+        files_content = kwargs["files_content"]
         return [
             {
                 "type": "text",
@@ -25,7 +25,7 @@ class ReviewerAgent(BaseAgent):
             },
             {
                 "type": "text",
-                "text": f"[対象ソースコード]\n{source_context}",
+                "text": f"[対象ソースコード]\n{files_content}",
                 "cache_control": {"type": "ephemeral"},
             },
         ]

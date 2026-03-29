@@ -6,11 +6,19 @@ from pathlib import Path
 from src.agents.engineer import EngineerAgent
 from src.agents.pm import PMAgent
 from src.agents.reviewer import ReviewerAgent
+from src.agents.senior_engineer import SeniorEngineerAgent
 from src.config import PipelineConfig, load_config
-from src.context import load_source_context
+from src.context import load_files_content, load_source_skeleton
 from src.events import OnEvent, PipelineEvent
 from src.logger import RunLogger
-from src.schemas import ApprovalRequest, ApprovalResult, EngineerOutput, PMOutput, ReviewerOutput
+from src.schemas import (
+    ApprovalRequest,
+    ApprovalResult,
+    EngineerOutput,
+    PMOutput,
+    ReviewerOutput,
+    SeniorEngineerOutput,
+)
 
 ApprovalCallback = Callable[[ApprovalRequest], ApprovalResult] | None
 
@@ -26,9 +34,41 @@ def _emit(on_event: OnEvent, event_type: str, agent: str | None = None, **data: 
         on_event(PipelineEvent(type=event_type, agent=agent, data=data))
 
 
+def _run_senior_engineer_phase(
+    request: str,
+    source_skeleton: str,
+    model: str,
+    on_event: OnEvent,
+    logger: RunLogger,
+    step_counter: list[int],
+    personality_id: str | None = None,
+    tone_id: str | None = None,
+) -> SeniorEngineerOutput:
+    print("🔹 シニアエンジニア 影響範囲分析中...")
+    _emit(on_event, "agent_start", agent="senior_engineer")
+    agent = SeniorEngineerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
+
+    output, usage = agent.run(
+        request=request,
+        source_skeleton=source_skeleton,
+    )
+    step_counter[0] += 1
+    logger.log_step("senior_engineer_output", step_counter[0], output, usage)
+    _print_usage("完了", usage)
+    _emit(
+        on_event,
+        "agent_complete",
+        agent="senior_engineer",
+        output=output.model_dump(),
+        usage=usage,
+        personality_name=agent.personality.name if agent.personality else None,
+    )
+    return output
+
+
 def _run_pm_phase(
     request: str,
-    source_context: str,
+    senior_engineer_output: str,
     model: str,
     rollback_history: list[dict],
     on_event: OnEvent,
@@ -50,7 +90,7 @@ def _run_pm_phase(
 
     pm_output, pm_usage = pm_agent.run(
         request=request + extra_context,
-        source_context=source_context,
+        senior_engineer_output=senior_engineer_output,
     )
     step_counter[0] += 1
     logger.log_step("pm_output", step_counter[0], pm_output, pm_usage)
@@ -69,7 +109,7 @@ def _run_pm_phase(
 def _handle_pm_approval(
     pm_output: PMOutput,
     request: str,
-    source_context: str,
+    senior_engineer_output: str,
     model: str,
     rollback_history: list[dict],
     on_event: OnEvent,
@@ -109,7 +149,7 @@ def _handle_pm_approval(
         rollback_history.append({"from": "user", "reason": approval.feedback})
         pm_output = _run_pm_phase(
             request + f"\n\n[ユーザーフィードバック]\n{approval.feedback}",
-            source_context,
+            senior_engineer_output,
             model,
             rollback_history,
             on_event,
@@ -125,7 +165,7 @@ def _handle_pm_approval(
 
 def _run_single_engineer(
     pm_output_text: str,
-    source_context: str,
+    files_content: str,
     model: str,
     rollback_history: list[dict],
     on_event: OnEvent,
@@ -147,7 +187,7 @@ def _run_single_engineer(
 
     eng_output, eng_usage = eng_agent.run(
         pm_output=pm_output_text + extra_context,
-        source_context=source_context,
+        files_content=files_content,
     )
     step_counter[0] += 1
     logger.log_step(f"{agent_label}_output", step_counter[0], eng_output, eng_usage)
@@ -165,7 +205,7 @@ def _run_single_engineer(
 
 def _run_engineer_phase(
     pm_output: PMOutput,
-    source_context: str,
+    files_content: str,
     model: str,
     config: PipelineConfig,
     rollback_history: list[dict],
@@ -181,7 +221,7 @@ def _run_engineer_phase(
     if config.engineer_count == 1:
         eng_output, _ = _run_single_engineer(
             pm_output_text,
-            source_context,
+            files_content,
             model,
             rollback_history,
             on_event,
@@ -208,7 +248,7 @@ def _run_engineer_phase(
 
     out1, _ = _run_single_engineer(
         pm_output_text,
-        source_context,
+        files_content,
         model,
         rollback_history,
         on_event,
@@ -220,7 +260,7 @@ def _run_engineer_phase(
     )
     out2, _ = _run_single_engineer(
         pm_output_text,
-        source_context,
+        files_content,
         model,
         rollback_history,
         on_event,
@@ -241,7 +281,7 @@ def _run_engineer_phase(
             own_output=out1.model_dump_json(indent=2),
             other_output=out2.model_dump_json(indent=2),
             pm_output=pm_output_text,
-            source_context=source_context,
+            files_content=files_content,
         )
 
         eng2 = EngineerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
@@ -249,7 +289,7 @@ def _run_engineer_phase(
             own_output=out2.model_dump_json(indent=2),
             other_output=out1.model_dump_json(indent=2),
             pm_output=pm_output_text,
-            source_context=source_context,
+            files_content=files_content,
         )
 
     # 収束チェック: code_patchesのfile_pathが一致すれば収束とみなす
@@ -274,7 +314,6 @@ def _pm_tiebreak_engineer(
     logger: RunLogger,
     step_counter: list[int],
 ) -> EngineerOutput:
-    # PMにタイブレークプロンプトで最終判断させる
     tiebreak_request = (
         f"[PM裁定依頼]\n"
         f"2人のエンジニアが議論しましたが合意に至りませんでした。\n"
@@ -284,7 +323,6 @@ def _pm_tiebreak_engineer(
         f"[エンジニア2の出力]\n{out2.model_dump_json(indent=2)}\n\n"
         f"[PMの要件]\n{pm_output.model_dump_json(indent=2)}"
     )
-    # PMの裁定だが、出力はEngineerOutputの形で返す
     from src.agents.base import PROMPTS_DIR, call_llm
 
     system_prompt = (PROMPTS_DIR / "pm_tiebreak.md").read_text(encoding="utf-8")
@@ -305,7 +343,7 @@ def _run_single_reviewer(
     request: str,
     pm_output_text: str,
     eng_output_text: str,
-    source_context: str,
+    files_content: str,
     model: str,
     rollback_history: list[dict],
     on_event: OnEvent,
@@ -322,7 +360,7 @@ def _run_single_reviewer(
         request=request,
         pm_output=pm_output_text,
         engineer_output=eng_output_text,
-        source_context=source_context,
+        files_content=files_content,
     )
     step_counter[0] += 1
     logger.log_step(f"{agent_label}_output", step_counter[0], rev_output, rev_usage)
@@ -342,7 +380,7 @@ def _run_reviewer_phase(
     request: str,
     pm_output: PMOutput,
     eng_output: EngineerOutput,
-    source_context: str,
+    files_content: str,
     model: str,
     config: PipelineConfig,
     rollback_history: list[dict],
@@ -361,7 +399,7 @@ def _run_reviewer_phase(
             request,
             pm_output_text,
             eng_output_text,
-            source_context,
+            files_content,
             model,
             rollback_history,
             on_event,
@@ -390,7 +428,7 @@ def _run_reviewer_phase(
         request,
         pm_output_text,
         eng_output_text,
-        source_context,
+        files_content,
         model,
         rollback_history,
         on_event,
@@ -404,7 +442,7 @@ def _run_reviewer_phase(
         request,
         pm_output_text,
         eng_output_text,
-        source_context,
+        files_content,
         model,
         rollback_history,
         on_event,
@@ -427,7 +465,7 @@ def _run_reviewer_phase(
             request=request,
             pm_output=pm_output_text,
             engineer_output=eng_output_text,
-            source_context=source_context,
+            files_content=files_content,
         )
 
         rev2 = ReviewerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
@@ -437,13 +475,12 @@ def _run_reviewer_phase(
             request=request,
             pm_output=pm_output_text,
             engineer_output=eng_output_text,
-            source_context=source_context,
+            files_content=files_content,
         )
 
     # 収束チェック: review_resultが一致すれば収束
     if out1.review_result == out2.review_result:
         _emit(on_event, "discussion_converged", agent="reviewer")
-        # issuesを統合
         merged_issues = list(dict.fromkeys(out1.issues + out2.issues))
         merged_fix = list(dict.fromkeys(out1.fix_instructions + out2.fix_instructions))
         return ReviewerOutput(
@@ -560,16 +597,19 @@ def run_pipeline(
     pm_personality_id: str | None = None,
     engineer_personality_ids: list[str] | None = None,
     reviewer_personality_ids: list[str] | None = None,
+    senior_engineer_personality_id: str | None = None,
     pm_tone_id: str | None = None,
     engineer_tone_id: str | None = None,
     reviewer_tone_id: str | None = None,
+    senior_engineer_tone_id: str | None = None,
 ) -> Path:
-    """PM → Engineer → Reviewer のパイプラインを実行し、ログディレクトリのパスを返す。
+    """Senior Engineer → PM → Engineer → Reviewer のパイプラインを実行する。
 
+    シニアエンジニアがスケルトンから影響範囲を特定し、
+    PMが要件整理、Engineer/Reviewerは対象ファイルのみ参照する。
     差し戻し・複数人議論・ユーザー承認を含む双方向フロー。
     """
     config = config or load_config()
-    source_context = load_source_context(source_path)
     logger = RunLogger(output_dir)
     logger.log_input(request, source_path)
 
@@ -584,17 +624,33 @@ def run_pipeline(
     pm_tid = pm_tone_id or config.default_pm_tone
     eng_tid = engineer_tone_id or config.default_engineer_tone
     rev_tid = reviewer_tone_id or config.default_reviewer_tone
+    se_pid = senior_engineer_personality_id
+    se_tid = senior_engineer_tone_id or config.default_pm_tone  # fallback to PM tone
 
     _emit(on_event, "pipeline_start", request=request)
 
     rollback_count = 0
     rollback_history: list[dict] = []
-    step_counter = [0]  # mutable counter for nested functions
+    step_counter = [0]
 
-    # --- Phase 1: PM ---
+    # --- Phase 0: シニアエンジニア（スケルトンで影響範囲分析）---
+    source_skeleton = load_source_skeleton(source_path)
+    senior_output = _run_senior_engineer_phase(
+        request,
+        source_skeleton,
+        model,
+        on_event,
+        logger,
+        step_counter,
+        personality_id=se_pid,
+        tone_id=se_tid,
+    )
+    senior_output_text = senior_output.model_dump_json(indent=2)
+
+    # --- Phase 1: PM（シニアエンジニアの報告を元に要件整理）---
     pm_output = _run_pm_phase(
         request,
-        source_context,
+        senior_output_text,
         model,
         rollback_history,
         on_event,
@@ -608,7 +664,7 @@ def run_pipeline(
     pm_output = _handle_pm_approval(
         pm_output,
         request,
-        source_context,
+        senior_output_text,
         model,
         rollback_history,
         on_event,
@@ -626,13 +682,16 @@ def run_pipeline(
         print(f"\n詳細: {logger.run_dir}")
         return logger.run_dir
 
+    # --- 対象ファイルのみの全文を生成 ---
+    files_content = load_files_content(source_path, pm_output.referenced_files)
+
     # --- メインループ: Engineer → Reviewer（差し戻しあり） ---
     rev_output = None
     while rollback_count < config.max_rollback_attempts:
         # --- Phase 2: Engineer ---
         eng_output = _run_engineer_phase(
             pm_output,
-            source_context,
+            files_content,
             model,
             config,
             rollback_history,
@@ -672,7 +731,7 @@ def run_pipeline(
                 print(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
                 pm_output = _run_pm_phase(
                     request,
-                    source_context,
+                    senior_output_text,
                     model,
                     rollback_history,
                     on_event,
@@ -684,7 +743,7 @@ def run_pipeline(
                 pm_output = _handle_pm_approval(
                     pm_output,
                     request,
-                    source_context,
+                    senior_output_text,
                     model,
                     rollback_history,
                     on_event,
@@ -697,6 +756,8 @@ def run_pipeline(
                 )
                 if pm_output is None:
                     break
+                # PM再実行時にreferenced_filesが変わる可能性があるので再生成
+                files_content = load_files_content(source_path, pm_output.referenced_files)
                 continue
 
         if pm_output is None:
@@ -707,7 +768,7 @@ def run_pipeline(
             request,
             pm_output,
             eng_output,
-            source_context,
+            files_content,
             model,
             config,
             rollback_history,
@@ -750,7 +811,7 @@ def run_pipeline(
                 if target == "pm":
                     pm_output = _run_pm_phase(
                         request,
-                        source_context,
+                        senior_output_text,
                         model,
                         rollback_history,
                         on_event,
@@ -762,7 +823,7 @@ def run_pipeline(
                     pm_output = _handle_pm_approval(
                         pm_output,
                         request,
-                        source_context,
+                        senior_output_text,
                         model,
                         rollback_history,
                         on_event,
@@ -775,6 +836,7 @@ def run_pipeline(
                     )
                     if pm_output is None:
                         break
+                    files_content = load_files_content(source_path, pm_output.referenced_files)
                 continue
 
         # PASS → 完了
