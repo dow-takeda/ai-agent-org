@@ -12,6 +12,7 @@ class PipelineConfig:
         self.pm_count: int = 1
         self.engineer_count: int = int(os.getenv("ENGINEER_COUNT", "1"))
         self.reviewer_count: int = int(os.getenv("REVIEWER_COUNT", "1"))
+        self.thinking_budget_tokens: int = int(os.getenv("THINKING_BUDGET_TOKENS", "10000"))
 
         if not 1 <= self.engineer_count <= 2:
             raise ValueError(f"ENGINEER_COUNT must be 1 or 2, got {self.engineer_count}")

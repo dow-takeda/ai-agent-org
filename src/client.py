@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import TypeVar
 
-from anthropic import Anthropic
+from anthropic import Anthropic, RateLimitError
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
 _client: Anthropic | None = None
+
+MAX_RETRIES = 5
+INITIAL_RETRY_WAIT = 10  # seconds
+MAX_RETRY_WAIT = 120  # seconds
 
 
 def get_client() -> Anthropic:
@@ -31,30 +36,67 @@ def _add_additional_properties_false(schema: dict) -> dict:
     return schema
 
 
+def _build_system_blocks(system_prompt: str) -> list[dict]:
+    """システムプロンプトをcache_control付きのブロックリストに変換する。"""
+    return [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _build_message_content(user_message: str | list[dict]) -> str | list[dict]:
+    """ユーザーメッセージをAPI送信用の形式に変換する。
+
+    文字列の場合はそのまま返す。
+    list[dict]の場合はcontent blocks形式としてそのまま返す。
+    """
+    return user_message
+
+
 def call_llm(
     system_prompt: str,
-    user_message: str,
+    user_message: str | list[dict],
     output_model: type[T],
     model: str = "claude-sonnet-4-6",
+    thinking_budget: int = 10000,
 ) -> tuple[T, dict]:
-    """LLMを呼び出し、構造化された出力とusage情報を返す。"""
+    """LLMを呼び出し、構造化された出力とusage情報を返す。
+
+    Prompt Caching: システムプロンプトとcache_control付きcontent blocksをキャッシュ。
+    リトライ: RateLimitError時にexponential backoffで最大5回リトライ。
+    """
     client = get_client()
     schema = _add_additional_properties_false(output_model.model_json_schema())
 
-    with client.messages.stream(
-        model=model,
-        max_tokens=64000,
-        thinking={"type": "enabled", "budget_tokens": 10000},
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-        output_config={
-            "format": {
-                "type": "json_schema",
-                "schema": schema,
-            },
-        },
-    ) as stream:
-        response = stream.get_final_message()
+    system_blocks = _build_system_blocks(system_prompt)
+    content = _build_message_content(user_message)
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            with client.messages.stream(
+                model=model,
+                max_tokens=64000,
+                thinking={"type": "enabled", "budget_tokens": thinking_budget},
+                system=system_blocks,
+                messages=[{"role": "user", "content": content}],
+                output_config={
+                    "format": {
+                        "type": "json_schema",
+                        "schema": schema,
+                    },
+                },
+            ) as stream:
+                response = stream.get_final_message()
+            break
+        except RateLimitError:
+            if attempt == MAX_RETRIES - 1:
+                raise
+            wait = min(INITIAL_RETRY_WAIT * (2**attempt), MAX_RETRY_WAIT)
+            print(f"  ⏳ レートリミット到達。{wait}秒後にリトライ ({attempt + 1}/{MAX_RETRIES})...")
+            time.sleep(wait)
 
     if response.stop_reason == "max_tokens":
         raise RuntimeError(
