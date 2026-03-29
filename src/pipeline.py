@@ -281,8 +281,17 @@ def _run_engineer_phase(
 
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
-        _emit(on_event, "discussion_round", agent="engineer", round=round_num + 1)
-        _tprint(f"  Engineer 議論ラウンド {round_num + 1}...")
+        _emit(
+            on_event,
+            "discussion_round",
+            agent="engineer",
+            round=round_num + 1,
+            total_rounds=config.max_discussion_rounds,
+            agent_count=n,
+        )
+        _tprint(
+            f"  Engineer 議論ラウンド {round_num + 1}/{config.max_discussion_rounds} ({n}人)..."
+        )
 
         new_outputs: list[EngineerOutput] = []
         for i in range(n):
@@ -441,8 +450,17 @@ def _run_reviewer_phase(
 
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
-        _emit(on_event, "discussion_round", agent="reviewer", round=round_num + 1)
-        _tprint(f"  Reviewer 議論ラウンド {round_num + 1}...")
+        _emit(
+            on_event,
+            "discussion_round",
+            agent="reviewer",
+            round=round_num + 1,
+            total_rounds=config.max_discussion_rounds,
+            agent_count=n,
+        )
+        _tprint(
+            f"  Reviewer 議論ラウンド {round_num + 1}/{config.max_discussion_rounds} ({n}人)..."
+        )
 
         new_outputs: list[ReviewerOutput] = []
         for i in range(n):
@@ -860,7 +878,16 @@ def run_pipeline(
         _tprint(f"\n⚠️ 差し戻し上限 ({max_att}) に到達。最終結果で出力します。")
 
     logger.write_summary()
-    _emit(on_event, "pipeline_complete")
+
+    # パイプライン完了サマリを構築
+    summary_data: dict = {
+        "steps": step_counter[0],
+        "output_dir": str(logger.run_dir),
+    }
+    if rev_output:
+        summary_data["review_result"] = rev_output.review_result
+        summary_data["issues"] = rev_output.issues
+    _emit(on_event, "pipeline_complete", **summary_data)
 
     if rev_output:
         result_label = "✅ PASS" if rev_output.review_result == "PASS" else "❌ FAIL"
