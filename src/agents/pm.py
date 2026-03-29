@@ -11,13 +11,12 @@ class PMAgent(BaseAgent):
 
     def _build_user_message(self, **kwargs: str) -> list[dict]:
         request = kwargs["request"]
-        source_context = kwargs["source_context"]
+        senior_engineer_output = kwargs["senior_engineer_output"]
         return [
             {"type": "text", "text": f"[改修要求]\n{request}"},
             {
                 "type": "text",
-                "text": f"[対象ソースコード]\n{source_context}",
-                "cache_control": {"type": "ephemeral"},
+                "text": f"[シニアエンジニアの調査報告]\n{senior_engineer_output}",
             },
         ]
 

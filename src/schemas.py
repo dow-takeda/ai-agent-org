@@ -3,11 +3,20 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class SeniorEngineerOutput(BaseModel):
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
+    impact_files: list[str] = Field(
+        description="影響範囲のファイルパス一覧（ファイルツリーに存在する相対パス）"
+    )
+    analysis: str = Field(description="構造分析の説明（依存関係、影響範囲の根拠）")
+
+
 class PMOutput(BaseModel):
     summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
     requirements: list[str] = Field(description="要件一覧")
     tasks: list[str] = Field(description="実装タスク一覧")
     acceptance_criteria: list[str] = Field(description="完了条件一覧")
+    referenced_files: list[str] = Field(description="Engineer/Reviewerが参照すべきファイルパス一覧")
 
 
 class CodePatch(BaseModel):

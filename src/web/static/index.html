@@ -68,6 +68,7 @@
   .avatar-pm { background: #06C755; }
   .avatar-engineer { background: #5B86E5; }
   .avatar-reviewer { background: #FF6B6B; }
+  .avatar-senior_engineer { background: #9B59B6; }
 
   .msg-content { max-width: 75%; }
 
@@ -90,6 +91,7 @@
   .bubble-pm { background: #D4F5E0; color: #1a1a1a; }
   .bubble-engineer { background: #D6E4FF; color: #1a1a1a; }
   .bubble-reviewer { background: #FFE0E0; color: #1a1a1a; }
+  .bubble-senior_engineer { background: #E8D5F5; color: #1a1a1a; }
 
   .bubble h4 { font-size: 13px; font-weight: 700; margin: 8px 0 4px; color: #555; }
   .bubble h4:first-child { margin-top: 0; }
@@ -382,7 +384,7 @@
   <span class="header-icon">💬</span>
   <div>
     AI改修チーム
-    <div class="header-members">PM, Engineer, Reviewer</div>
+    <div class="header-members">Senior Engineer, PM, Engineer, Reviewer</div>
   </div>
 </div>
 
@@ -434,6 +436,7 @@
 
 <script>
 const AGENTS = {
+  senior_engineer: { name: "Senior Eng", avatar: "🏗️", bubbleClass: "bubble-senior_engineer", avatarClass: "avatar-senior_engineer" },
   pm:            { name: "PM",           avatar: "📋", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
   engineer:      { name: "Engineer",     avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
   engineer_1:    { name: "Engineer 1",   avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
@@ -561,6 +564,19 @@ function toggleDetail(id) {
   }
 }
 
+function formatSeniorEngineer(output) {
+  const id = "detail-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  let summary = escHtml(output.summary || "").replace(/\n/g, "<br>");
+
+  let detail = "<h4>影響範囲ファイル</h4><ul>";
+  for (const f of output.impact_files || []) detail += `<li>${escHtml(f)}</li>`;
+  detail += "</ul><h4>分析</h4><p>" + escHtml(output.analysis || "").replace(/\n/g, "<br>") + "</p>";
+
+  return `<div class="summary-text">${summary}</div>` +
+         `<div class="detail-toggle" onclick="toggleDetail('${id}')">詳細を表示 ▼</div>` +
+         `<div class="detail-content" id="${id}" style="display:none">${detail}</div>`;
+}
+
 function formatPM(output) {
   const id = "detail-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
   let summary = escHtml(output.summary || "").replace(/\n/g, "<br>");
@@ -572,6 +588,11 @@ function formatPM(output) {
   detail += "</ol><h4>受入基準</h4><ul>";
   for (const a of output.acceptance_criteria || []) detail += `<li>${escHtml(a)}</li>`;
   detail += "</ul>";
+  if ((output.referenced_files || []).length > 0) {
+    detail += "<h4>参照ファイル</h4><ul>";
+    for (const f of output.referenced_files) detail += `<li>${escHtml(f)}</li>`;
+    detail += "</ul>";
+  }
 
   return `<div class="summary-text">${summary}</div>` +
          `<div class="detail-toggle" onclick="toggleDetail('${id}')">詳細を表示 ▼</div>` +
@@ -718,7 +739,9 @@ async function startRun() {
           if (AGENTS[agentKey]) showTyping(agentKey);
           break;
         case "agent_complete":
-          if (agentKey.startsWith("pm") && !agentKey.includes("tiebreak")) {
+          if (agentKey === "senior_engineer") {
+            addBubble(agentKey, formatSeniorEngineer(event.data.output), displayName);
+          } else if (agentKey.startsWith("pm") && !agentKey.includes("tiebreak")) {
             addBubble(agentKey, formatPM(event.data.output), displayName);
           } else if (agentKey.startsWith("engineer")) {
             addBubble(agentKey, formatEngineer(event.data.output), displayName);

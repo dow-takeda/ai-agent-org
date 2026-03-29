@@ -14,6 +14,7 @@ from src.schemas import (
     PMRollbackDecision,
     ReviewerOutput,
     RollbackProposal,
+    SeniorEngineerOutput,
 )
 
 
@@ -42,12 +43,21 @@ def config():
     return cfg
 
 
+def _senior_eng_output():
+    return SeniorEngineerOutput(
+        summary="影響範囲を調べたわよ〜",
+        impact_files=["app.py"],
+        analysis="app.pyが直接の改修対象",
+    )
+
+
 def _pm_output():
     return PMOutput(
         summary="要件をまとめたわよ〜",
         requirements=["要件1"],
         tasks=["タスク1"],
         acceptance_criteria=["条件1"],
+        referenced_files=["app.py"],
     )
 
 
@@ -87,6 +97,7 @@ class TestHappyPath:
     def test_pass_pipeline(self, source_dir, config):
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
                 (_eng_output(), {}),
                 (_rev_output("PASS"), {}),
@@ -100,7 +111,7 @@ class TestHappyPath:
                 config=config,
             )
             assert result.exists()
-            assert mock_llm.call_count == 3
+            assert mock_llm.call_count == 4
 
 
 class TestPMApproval:
@@ -115,6 +126,7 @@ class TestPMApproval:
 
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),  # first PM
                 (_pm_output(), {}),  # PM re-run after rejection
                 (_eng_output(), {}),
@@ -129,7 +141,7 @@ class TestPMApproval:
                 config=config,
             )
             assert result.exists()
-            assert mock_llm.call_count == 4
+            assert mock_llm.call_count == 5
 
 
 class TestRollback:
@@ -148,6 +160,7 @@ class TestRollback:
 
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),  # first PM
                 (_eng_output(rollback=rollback_proposal), {}),  # engineer with rollback
                 (pm_decision, {}),  # PM rollback review
@@ -188,6 +201,7 @@ class TestRollback:
 
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
                 (_eng_output(), {}),
                 (_rev_output("FAIL", rollback=rollback_proposal), {}),
@@ -214,6 +228,7 @@ class TestRollbackLimit:
 
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
                 (_eng_output(), {}),
                 (_rev_output("FAIL"), {}),  # FAIL → retry 1
@@ -236,6 +251,7 @@ class TestTerminate:
         """ユーザーが終了を指示した場合、PM出力までで終了する。"""
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
             ]
             from src.pipeline import run_pipeline
@@ -247,13 +263,14 @@ class TestTerminate:
                 config=config,
             )
             assert result.exists()
-            assert mock_llm.call_count == 1  # PM only, no engineer/reviewer
+            assert mock_llm.call_count == 2  # Senior Eng + PM only
 
 
 class TestReviewFailRetry:
     def test_review_fail_then_pass(self, source_dir, config):
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
                 (_eng_output(), {}),
                 (_rev_output("FAIL"), {}),  # first review: FAIL
@@ -269,7 +286,7 @@ class TestReviewFailRetry:
                 config=config,
             )
             assert result.exists()
-            assert mock_llm.call_count == 5
+            assert mock_llm.call_count == 6
 
 
 class TestNoApprovalCallback:
@@ -277,6 +294,7 @@ class TestNoApprovalCallback:
         """on_approval=Noneの場合、承認ステップがスキップされる。"""
         with patch("src.agents.base.call_llm") as mock_llm:
             mock_llm.side_effect = [
+                (_senior_eng_output(), {}),  # senior engineer
                 (_pm_output(), {}),
                 (_eng_output(), {}),
                 (_rev_output("PASS"), {}),
@@ -290,4 +308,4 @@ class TestNoApprovalCallback:
                 config=config,
             )
             assert result.exists()
-            assert mock_llm.call_count == 3
+            assert mock_llm.call_count == 4

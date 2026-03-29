@@ -16,10 +16,12 @@ def test_pm_output_roundtrip():
         "requirements": ["要件1"],
         "tasks": ["タスク1"],
         "acceptance_criteria": ["条件1"],
+        "referenced_files": ["app.py"],
     }
     output = PMOutput.model_validate(data)
     assert output.requirements == ["要件1"]
     assert output.summary == "まとめたわよ〜"
+    assert output.referenced_files == ["app.py"]
     assert output.model_dump() == data
 
 
