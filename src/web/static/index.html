@@ -235,21 +235,6 @@
     margin-top: 10px;
   }
 
-  .file-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    color: #666;
-    cursor: pointer;
-    padding: 6px 12px;
-    border: 1px solid #ddd;
-    border-radius: 20px;
-  }
-  .file-label:hover { background: #f5f5f5; }
-  .file-label input { display: none; }
-  .file-name { font-size: 12px; color: #888; }
-
   .btn-send {
     margin-left: auto;
     background: #06C755;
@@ -410,11 +395,6 @@
 
     <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください..."></textarea>
     <div class="bottom-row">
-      <label class="file-label">
-        📎 ファイル
-        <input type="file" id="requestFile" name="request_file" onchange="onFileSelect(this)">
-      </label>
-      <span class="file-name" id="fileName"></span>
       <button type="button" class="btn-send" id="btnSend" onclick="startRun()">▶</button>
     </div>
   </form>
@@ -525,11 +505,6 @@ async function loadSettings() {
 }
 
 document.addEventListener("DOMContentLoaded", loadSettings);
-
-function onFileSelect(input) {
-  const name = input.files.length ? input.files[0].name : "";
-  document.getElementById("fileName").textContent = name;
-}
 
 function scrollToBottom() {
   chatArea.scrollTop = chatArea.scrollHeight;
@@ -729,10 +704,9 @@ async function startRun() {
   const btn = document.getElementById("btnSend");
   const sourcePath = document.getElementById("sourcePath").value.trim();
   const requestText = document.getElementById("requestText").value.trim();
-  const fileInput = document.getElementById("requestFile");
 
   if (!sourcePath) { alert("ソースパスを入力してください"); return; }
-  if (!requestText && !fileInput.files.length) { alert("要求を入力するか、ファイルを選択してください"); return; }
+  if (!requestText) { alert("改修要求を入力してください"); return; }
 
   btn.disabled = true;
   document.getElementById("welcome")?.remove();
@@ -743,7 +717,6 @@ async function startRun() {
   const formData = new FormData();
   formData.append("source_path", sourcePath);
   formData.append("request_text", requestText);
-  if (fileInput.files.length) formData.append("request_file", fileInput.files[0]);
 
   // Personality & tone settings
   const _val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };

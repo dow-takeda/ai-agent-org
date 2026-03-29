@@ -71,7 +71,6 @@ async def start_run(request: Request) -> dict:
     form = await request.form()
 
     request_text = form.get("request_text", "")
-    request_file = form.get("request_file")
     source_path = form.get("source_path", "")
     model = form.get("model", "claude-sonnet-4-6")
 
@@ -79,12 +78,7 @@ async def start_run(request: Request) -> dict:
     queue: Queue[PipelineEvent | None] = Queue()
     _runs[run_id] = queue
 
-    # Resolve request content
-    if request_file and hasattr(request_file, "filename") and request_file.filename:
-        content = await request_file.read()
-        req_text = content.decode("utf-8")
-    else:
-        req_text = str(request_text)
+    req_text = str(request_text)
 
     # Personality/tone: 動的にフォームから収集
     def _get(key: str) -> str:
