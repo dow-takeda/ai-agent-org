@@ -799,12 +799,19 @@ async function startRun() {
           removeTyping();
           showApprovalDialog(event.data);
           break;
-        case "discussion_round":
-          addSystemMessage(`${agentKey} 議論ラウンド ${event.data.round || "?"}`);
+        case "discussion_round": {
+          const r = event.data.round || "?";
+          const total = event.data.total_rounds || "?";
+          const cnt = event.data.agent_count || "?";
+          const role = agentKey === "engineer" ? "Engineer" : "Reviewer";
+          addSystemMessage(`💬 ${role} 議論ラウンド ${r}/${total}（${cnt}人が相互レビュー中）`);
           break;
-        case "discussion_converged":
-          addSystemMessage(`${agentKey} の議論が収束しました`);
+        }
+        case "discussion_converged": {
+          const role2 = agentKey === "engineer" ? "Engineer" : "Reviewer";
+          addSystemMessage(`✅ ${role2} の議論が収束しました — 合意に到達`);
           break;
+        }
         case "pm_tiebreak":
           addSystemMessage("PM が裁定を行います...");
           showTyping("pm");
@@ -829,12 +836,28 @@ async function startRun() {
         case "review_fail_retry":
           addSystemMessage(`レビューFAIL → 修正指示で再実行 (${event.data.attempt || "?"}回目)`);
           break;
-        case "pipeline_complete":
-          addSystemMessage("パイプライン完了");
+        case "pipeline_complete": {
+          removeTyping();
+          const d = event.data;
+          const result = d.review_result;
+          const badge = result === "PASS" ? "✅ PASS" : result === "FAIL" ? "❌ FAIL" : "";
+          let summaryHtml = `<strong>パイプライン完了</strong>`;
+          if (badge) summaryHtml += ` — ${badge}`;
+          if (d.steps) summaryHtml += `<br>ステップ数: ${d.steps}`;
+          if (d.issues && d.issues.length > 0) {
+            summaryHtml += `<br>指摘事項: ${d.issues.length}件`;
+          }
+          if (d.output_dir) summaryHtml += `<br>出力: ${d.output_dir}`;
+          const div = document.createElement("div");
+          div.className = "system-msg";
+          div.innerHTML = summaryHtml;
+          chatArea.appendChild(div);
+          scrollToBottom();
           eventSource.close();
           btn.disabled = false;
           currentRunId = null;
           break;
+        }
         case "pipeline_error":
           removeTyping();
           addSystemMessage("エラー: " + (event.data.error || "不明なエラー"));
