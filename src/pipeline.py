@@ -210,6 +210,27 @@ def _run_single_engineer(
     return eng_output, eng_usage
 
 
+def _resolve_personality_ids(pids: list[str], role: str, count: int) -> list[str | None]:
+    """パーソナリティIDリストをcount分に解決する。不足分はYAMLから補完。"""
+    if len(pids) >= count:
+        return list(pids[:count])
+
+    from src.personalities import list_personality_ids
+
+    all_ids = list_personality_ids(role)
+    result: list[str | None] = list(pids)
+    used = set(pids)
+    for aid in all_ids:
+        if len(result) >= count:
+            break
+        if aid not in used:
+            result.append(aid)
+            used.add(aid)
+    while len(result) < count:
+        result.append(None)
+    return result
+
+
 def _run_engineer_phase(
     pm_output: PMOutput,
     files_content: str,
@@ -223,9 +244,10 @@ def _run_engineer_phase(
     tone_id: str | None = None,
 ) -> EngineerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
-    pids = engineer_personality_ids or []
+    n = config.engineer_count
+    pids = _resolve_personality_ids(engineer_personality_ids or [], "engineer", n)
 
-    if config.engineer_count == 1:
+    if n == 1:
         eng_output, _ = _run_single_engineer(
             pm_output_text,
             files_content,
@@ -234,100 +256,79 @@ def _run_engineer_phase(
             on_event,
             logger,
             step_counter,
-            personality_id=pids[0] if pids else None,
+            personality_id=pids[0],
             tone_id=tone_id,
         )
         return eng_output
 
-    # 2人体制: 独立実行 → 議論 → 収束 or PM裁定
-    from src.personalities import list_personality_ids
-
-    if len(pids) >= 2:
-        pid_1, pid_2 = pids[0], pids[1]
-    elif len(pids) == 1:
-        all_ids = list_personality_ids("engineer")
-        pid_1 = pids[0]
-        pid_2 = next((p for p in all_ids if p != pid_1), all_ids[1] if len(all_ids) > 1 else None)
-    else:
-        all_ids = list_personality_ids("engineer")
-        pid_1 = all_ids[0] if len(all_ids) > 0 else None
-        pid_2 = all_ids[1] if len(all_ids) > 1 else None
-
-    out1, _ = _run_single_engineer(
-        pm_output_text,
-        files_content,
-        model,
-        rollback_history,
-        on_event,
-        logger,
-        step_counter,
-        personality_id=pid_1,
-        tone_id=tone_id,
-        agent_label="engineer_1",
-    )
-    out2, _ = _run_single_engineer(
-        pm_output_text,
-        files_content,
-        model,
-        rollback_history,
-        on_event,
-        logger,
-        step_counter,
-        personality_id=pid_2,
-        tone_id=tone_id,
-        agent_label="engineer_2",
-    )
+    # N人体制: 独立実行 → 議論 → 収束 or PM裁定
+    outputs: list[EngineerOutput] = []
+    for i in range(n):
+        label = f"engineer_{i + 1}"
+        out, _ = _run_single_engineer(
+            pm_output_text,
+            files_content,
+            model,
+            rollback_history,
+            on_event,
+            logger,
+            step_counter,
+            personality_id=pids[i],
+            tone_id=tone_id,
+            agent_label=label,
+        )
+        outputs.append(out)
 
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
         _emit(on_event, "discussion_round", agent="engineer", round=round_num + 1)
         _tprint(f"  Engineer 議論ラウンド {round_num + 1}...")
 
-        eng1 = EngineerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
-        out1, _ = eng1.run_discussion(
-            own_output=out1.model_dump_json(indent=2),
-            other_output=out2.model_dump_json(indent=2),
-            pm_output=pm_output_text,
-            files_content=files_content,
-        )
+        new_outputs: list[EngineerOutput] = []
+        for i in range(n):
+            others = "\n---\n".join(
+                outputs[j].model_dump_json(indent=2) for j in range(n) if j != i
+            )
+            agent = EngineerAgent(model=model, personality_id=pids[i], tone_id=tone_id)
+            out, _ = agent.run_discussion(
+                own_output=outputs[i].model_dump_json(indent=2),
+                other_output=others,
+                pm_output=pm_output_text,
+                files_content=files_content,
+            )
+            new_outputs.append(out)
+        outputs = new_outputs
 
-        eng2 = EngineerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
-        out2, _ = eng2.run_discussion(
-            own_output=out2.model_dump_json(indent=2),
-            other_output=out1.model_dump_json(indent=2),
-            pm_output=pm_output_text,
-            files_content=files_content,
-        )
-
-    # 収束チェック: code_patchesのfile_pathが一致すれば収束とみなす
-    paths1 = {p.file_path for p in out1.code_patches}
-    paths2 = {p.file_path for p in out2.code_patches}
-    if paths1 == paths2:
+    # 収束チェック: 全員のcode_patchesのfile_pathが一致すれば収束
+    all_paths = [{p.file_path for p in out.code_patches} for out in outputs]
+    if len({frozenset(s) for s in all_paths}) == 1:
         _emit(on_event, "discussion_converged", agent="engineer")
-        return out1
+        return outputs[0]
 
     # PM裁定
     _emit(on_event, "pm_tiebreak", agent="pm")
     _tprint("  Engineer間の議論が収束しませんでした。PMが裁定します...")
-    return _pm_tiebreak_engineer(pm_output, out1, out2, model, on_event, logger, step_counter)
+    return _pm_tiebreak_engineer(pm_output, outputs, model, on_event, logger, step_counter)
 
 
 def _pm_tiebreak_engineer(
     pm_output: PMOutput,
-    out1: EngineerOutput,
-    out2: EngineerOutput,
+    outputs: list[EngineerOutput],
     model: str,
     on_event: OnEvent,
     logger: RunLogger,
     step_counter: list[int],
 ) -> EngineerOutput:
+    outputs_text = "\n\n".join(
+        f"[エンジニア{i + 1}の出力]\n{out.model_dump_json(indent=2)}"
+        for i, out in enumerate(outputs)
+    )
     tiebreak_request = (
         f"[PM裁定依頼]\n"
-        f"2人のエンジニアが議論しましたが合意に至りませんでした。\n"
-        f"以下の2つの実装案から最適なものを選択し、"
+        f"{len(outputs)}人のエンジニアが議論しましたが合意に至りませんでした。\n"
+        f"以下の実装案から最適なものを選択し、"
         f"エンジニアとして最終的な統合出力を生成してください。\n\n"
-        f"[エンジニア1の出力]\n{out1.model_dump_json(indent=2)}\n\n"
-        f"[エンジニア2の出力]\n{out2.model_dump_json(indent=2)}\n\n"
+        f"{outputs_text}\n\n"
         f"[PMの要件]\n{pm_output.model_dump_json(indent=2)}"
     )
     from src.agents.base import PROMPTS_DIR, call_llm
@@ -399,9 +400,10 @@ def _run_reviewer_phase(
 ) -> ReviewerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
     eng_output_text = eng_output.model_dump_json(indent=2)
-    pids = reviewer_personality_ids or []
+    n = config.reviewer_count
+    pids = _resolve_personality_ids(reviewer_personality_ids or [], "reviewer", n)
 
-    if config.reviewer_count == 1:
+    if n == 1:
         rev_output, _ = _run_single_reviewer(
             request,
             pm_output_text,
@@ -412,102 +414,82 @@ def _run_reviewer_phase(
             on_event,
             logger,
             step_counter,
-            personality_id=pids[0] if pids else None,
+            personality_id=pids[0],
             tone_id=tone_id,
         )
         return rev_output
 
-    # 2人体制
-    from src.personalities import list_personality_ids
-
-    if len(pids) >= 2:
-        pid_1, pid_2 = pids[0], pids[1]
-    elif len(pids) == 1:
-        all_ids = list_personality_ids("reviewer")
-        pid_1 = pids[0]
-        pid_2 = next((p for p in all_ids if p != pid_1), all_ids[1] if len(all_ids) > 1 else None)
-    else:
-        all_ids = list_personality_ids("reviewer")
-        pid_1 = all_ids[0] if len(all_ids) > 0 else None
-        pid_2 = all_ids[1] if len(all_ids) > 1 else None
-
-    out1, _ = _run_single_reviewer(
-        request,
-        pm_output_text,
-        eng_output_text,
-        files_content,
-        model,
-        rollback_history,
-        on_event,
-        logger,
-        step_counter,
-        personality_id=pid_1,
-        tone_id=tone_id,
-        agent_label="reviewer_1",
-    )
-    out2, _ = _run_single_reviewer(
-        request,
-        pm_output_text,
-        eng_output_text,
-        files_content,
-        model,
-        rollback_history,
-        on_event,
-        logger,
-        step_counter,
-        personality_id=pid_2,
-        tone_id=tone_id,
-        agent_label="reviewer_2",
-    )
+    # N人体制: 独立実行 → 議論 → 収束 or PM裁定
+    outputs: list[ReviewerOutput] = []
+    for i in range(n):
+        label = f"reviewer_{i + 1}"
+        out, _ = _run_single_reviewer(
+            request,
+            pm_output_text,
+            eng_output_text,
+            files_content,
+            model,
+            rollback_history,
+            on_event,
+            logger,
+            step_counter,
+            personality_id=pids[i],
+            tone_id=tone_id,
+            agent_label=label,
+        )
+        outputs.append(out)
 
     # 議論ラウンド
     for round_num in range(config.max_discussion_rounds):
         _emit(on_event, "discussion_round", agent="reviewer", round=round_num + 1)
         _tprint(f"  Reviewer 議論ラウンド {round_num + 1}...")
 
-        rev1 = ReviewerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
-        out1, _ = rev1.run_discussion(
-            own_output=out1.model_dump_json(indent=2),
-            other_output=out2.model_dump_json(indent=2),
-            request=request,
-            pm_output=pm_output_text,
-            engineer_output=eng_output_text,
-            files_content=files_content,
-        )
+        new_outputs: list[ReviewerOutput] = []
+        for i in range(n):
+            others = "\n---\n".join(
+                outputs[j].model_dump_json(indent=2) for j in range(n) if j != i
+            )
+            agent = ReviewerAgent(model=model, personality_id=pids[i], tone_id=tone_id)
+            out, _ = agent.run_discussion(
+                own_output=outputs[i].model_dump_json(indent=2),
+                other_output=others,
+                request=request,
+                pm_output=pm_output_text,
+                engineer_output=eng_output_text,
+                files_content=files_content,
+            )
+            new_outputs.append(out)
+        outputs = new_outputs
 
-        rev2 = ReviewerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
-        out2, _ = rev2.run_discussion(
-            own_output=out2.model_dump_json(indent=2),
-            other_output=out1.model_dump_json(indent=2),
-            request=request,
-            pm_output=pm_output_text,
-            engineer_output=eng_output_text,
-            files_content=files_content,
-        )
-
-    # 収束チェック: review_resultが一致すれば収束
-    if out1.review_result == out2.review_result:
+    # 収束チェック: 全員のreview_resultが一致すれば収束
+    results = {out.review_result for out in outputs}
+    if len(results) == 1:
         _emit(on_event, "discussion_converged", agent="reviewer")
-        merged_issues = list(dict.fromkeys(out1.issues + out2.issues))
-        merged_fix = list(dict.fromkeys(out1.fix_instructions + out2.fix_instructions))
+        merged_issues: list[str] = []
+        merged_fix: list[str] = []
+        rollback = None
+        for out in outputs:
+            merged_issues.extend(i for i in out.issues if i not in merged_issues)
+            merged_fix.extend(f for f in out.fix_instructions if f not in merged_fix)
+            if out.rollback_proposal and not rollback:
+                rollback = out.rollback_proposal
         return ReviewerOutput(
-            summary=out1.summary,
-            review_result=out1.review_result,
+            summary=outputs[0].summary,
+            review_result=outputs[0].review_result,
             issues=merged_issues,
             fix_instructions=merged_fix,
-            rollback_proposal=out1.rollback_proposal or out2.rollback_proposal,
+            rollback_proposal=rollback,
         )
 
     # PM裁定
     _emit(on_event, "pm_tiebreak", agent="pm")
     _tprint("  Reviewer間の議論が収束しませんでした。PMが裁定します...")
-    return _pm_tiebreak_reviewer(pm_output, out1, out2, model, on_event, logger, step_counter)
+    return _pm_tiebreak_reviewer(pm_output, outputs, model, on_event, logger, step_counter)
 
 
 def _pm_tiebreak_reviewer(
     pm_output: PMOutput,
-    out1: ReviewerOutput,
-    out2: ReviewerOutput,
+    outputs: list[ReviewerOutput],
     model: str,
     on_event: OnEvent,
     logger: RunLogger,
@@ -515,13 +497,16 @@ def _pm_tiebreak_reviewer(
 ) -> ReviewerOutput:
     from src.agents.base import PROMPTS_DIR, call_llm
 
+    outputs_text = "\n\n".join(
+        f"[レビュワー{i + 1}の出力]\n{out.model_dump_json(indent=2)}"
+        for i, out in enumerate(outputs)
+    )
     tiebreak_request = (
         f"[PM裁定依頼]\n"
-        f"2人のレビュワーが議論しましたが合意に至りませんでした。\n"
-        f"以下の2つのレビュー結果から最適なものを選択し、"
+        f"{len(outputs)}人のレビュワーが議論しましたが合意に至りませんでした。\n"
+        f"以下のレビュー結果から最適なものを選択し、"
         f"レビュワーとして最終的な統合出力を生成してください。\n\n"
-        f"[レビュワー1の出力]\n{out1.model_dump_json(indent=2)}\n\n"
-        f"[レビュワー2の出力]\n{out2.model_dump_json(indent=2)}\n\n"
+        f"{outputs_text}\n\n"
         f"[PMの要件]\n{pm_output.model_dump_json(indent=2)}"
     )
     system_prompt = (PROMPTS_DIR / "pm_tiebreak.md").read_text(encoding="utf-8")

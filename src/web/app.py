@@ -6,7 +6,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Thread
 
-from fastapi import FastAPI, Form, UploadFile
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.events import PipelineEvent
@@ -30,13 +30,25 @@ async def index() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+@app.get("/api/config")
+async def get_config() -> dict:
+    """パイプライン設定を返す。"""
+    from src.config import load_config
+
+    config = load_config()
+    return {
+        "engineer_count": config.engineer_count,
+        "reviewer_count": config.reviewer_count,
+    }
+
+
 @app.get("/api/personalities")
 async def list_personalities() -> dict:
     """役職別のパーソナリティ一覧を返す。"""
     from src.personalities import load_personalities
 
     result = {}
-    for role in ("pm", "engineer", "reviewer"):
+    for role in ("senior_engineer", "pm", "engineer", "reviewer"):
         personalities = load_personalities(role)
         result[role] = [
             {"id": p.id, "name": p.name, "focus": p.focus, "description": p.description}
@@ -55,28 +67,40 @@ async def list_tones() -> list[dict]:
 
 
 @app.post("/api/run")
-async def start_run(
-    request_text: str = Form(default=""),
-    request_file: UploadFile | None = None,
-    source_path: str = Form(...),
-    model: str = Form(default="claude-sonnet-4-6"),
-    pm_personality: str = Form(default=""),
-    engineer_personality: str = Form(default=""),
-    reviewer_personality: str = Form(default=""),
-    pm_tone: str = Form(default=""),
-    engineer_tone: str = Form(default=""),
-    reviewer_tone: str = Form(default=""),
-) -> dict:
+async def start_run(request: Request) -> dict:
+    form = await request.form()
+
+    request_text = form.get("request_text", "")
+    request_file = form.get("request_file")
+    source_path = form.get("source_path", "")
+    model = form.get("model", "claude-sonnet-4-6")
+
     run_id = uuid.uuid4().hex[:8]
     queue: Queue[PipelineEvent | None] = Queue()
     _runs[run_id] = queue
 
     # Resolve request content
-    if request_file and request_file.filename:
+    if request_file and hasattr(request_file, "filename") and request_file.filename:
         content = await request_file.read()
-        request = content.decode("utf-8")
+        req_text = content.decode("utf-8")
     else:
-        request = request_text
+        req_text = str(request_text)
+
+    # Personality/tone: 動的にフォームから収集
+    def _get(key: str) -> str:
+        return str(form.get(key, "") or "")
+
+    se_personality = _get("senior_engineer_personality")
+    pm_personality = _get("pm_personality")
+    se_tone = _get("senior_engineer_tone")
+    pm_tone = _get("pm_tone")
+
+    eng_pids = [_get(f"engineer{i}_personality") for i in range(1, 10)]
+    eng_pids = [p for p in eng_pids if p]
+    rev_pids = [_get(f"reviewer{i}_personality") for i in range(1, 10)]
+    rev_pids = [p for p in rev_pids if p]
+    eng_tone = _get("engineer1_tone")
+    rev_tone = _get("reviewer1_tone")
 
     def on_event(event: PipelineEvent) -> None:
         queue.put(event)
@@ -89,7 +113,6 @@ async def start_run(
             "request": req.model_dump(),
             "result": None,
         }
-        # 承認待ちイベントはon_event経由で既にキューに入っている
         approval_event.wait()
         result_data = _approval_requests.pop(run_id)["result"]
         return ApprovalResult(**result_data)
@@ -97,17 +120,19 @@ async def start_run(
     def run_in_thread() -> None:
         try:
             run_pipeline(
-                request=request,
-                source_path=source_path,
-                model=model,
+                request=req_text,
+                source_path=str(source_path),
+                model=str(model),
                 on_event=on_event,
                 on_approval=web_approval,
+                senior_engineer_personality_id=se_personality or None,
                 pm_personality_id=pm_personality or None,
-                engineer_personality_ids=[engineer_personality] if engineer_personality else None,
-                reviewer_personality_ids=[reviewer_personality] if reviewer_personality else None,
+                engineer_personality_ids=eng_pids or None,
+                reviewer_personality_ids=rev_pids or None,
+                senior_engineer_tone_id=se_tone or None,
                 pm_tone_id=pm_tone or None,
-                engineer_tone_id=engineer_tone or None,
-                reviewer_tone_id=reviewer_tone or None,
+                engineer_tone_id=eng_tone or None,
+                reviewer_tone_id=rev_tone or None,
             )
         except Exception as e:
             queue.put(PipelineEvent(type="pipeline_error", data={"error": str(e)}))

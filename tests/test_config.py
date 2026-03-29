@@ -33,7 +33,7 @@ class TestPipelineConfig:
 
     def test_invalid_engineer_count(self):
         with (
-            patch.dict("os.environ", {"ENGINEER_COUNT": "3"}, clear=True),
+            patch.dict("os.environ", {"ENGINEER_COUNT": "8"}, clear=True),
             pytest.raises(ValueError, match="ENGINEER_COUNT"),
         ):
             PipelineConfig()

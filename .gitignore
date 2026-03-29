@@ -1,5 +1,6 @@
 # ===== Project =====
 outputs/
+.mcp.json
 
 # ===== Python =====
 __pycache__/
