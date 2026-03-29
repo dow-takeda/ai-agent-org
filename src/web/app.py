@@ -30,12 +30,42 @@ async def index() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+@app.get("/api/personalities")
+async def list_personalities() -> dict:
+    """役職別のパーソナリティ一覧を返す。"""
+    from src.personalities import load_personalities
+
+    result = {}
+    for role in ("pm", "engineer", "reviewer"):
+        personalities = load_personalities(role)
+        result[role] = [
+            {"id": p.id, "name": p.name, "focus": p.focus, "description": p.description}
+            for p in personalities
+        ]
+    return result
+
+
+@app.get("/api/tones")
+async def list_tones() -> list[dict]:
+    """口調一覧を返す。"""
+    from src.personalities import load_tones
+
+    tones = load_tones()
+    return [{"id": t.id, "name": t.name, "description": t.description} for t in tones]
+
+
 @app.post("/api/run")
 async def start_run(
     request_text: str = Form(default=""),
     request_file: UploadFile | None = None,
     source_path: str = Form(...),
     model: str = Form(default="claude-sonnet-4-6"),
+    pm_personality: str = Form(default=""),
+    engineer_personality: str = Form(default=""),
+    reviewer_personality: str = Form(default=""),
+    pm_tone: str = Form(default=""),
+    engineer_tone: str = Form(default=""),
+    reviewer_tone: str = Form(default=""),
 ) -> dict:
     run_id = uuid.uuid4().hex[:8]
     queue: Queue[PipelineEvent | None] = Queue()
@@ -72,6 +102,12 @@ async def start_run(
                 model=model,
                 on_event=on_event,
                 on_approval=web_approval,
+                pm_personality_id=pm_personality or None,
+                engineer_personality_ids=[engineer_personality] if engineer_personality else None,
+                reviewer_personality_ids=[reviewer_personality] if reviewer_personality else None,
+                pm_tone_id=pm_tone or None,
+                engineer_tone_id=engineer_tone or None,
+                reviewer_tone_id=reviewer_tone or None,
             )
         except Exception as e:
             queue.put(PipelineEvent(type="pipeline_error", data={"error": str(e)}))

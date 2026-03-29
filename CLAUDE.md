@@ -25,7 +25,8 @@ python -m src.main --request "..." --source /path --model claude-opus-4-6 --outp
 - `src/pipeline.py` — 双方向パイプライン（差し戻しループ・複数人議論・ユーザー承認）
 - `src/config.py` — パイプライン設定ローダー（.envから読み込み）
 - `src/client.py` — Anthropic API呼び出し (structured output + streaming + extended thinking)
-- `src/schemas.py` — Pydantic models: `PMOutput`, `EngineerOutput`, `ReviewerOutput`, `RollbackProposal`, `PMRollbackDecision`, `ApprovalRequest`, `ApprovalResult`
+- `src/schemas.py` — Pydantic models: `PMOutput`, `EngineerOutput`, `ReviewerOutput`（各outputにsummaryフィールド付き）, `RollbackProposal`, `PMRollbackDecision`, `ApprovalRequest`, `ApprovalResult`
+- `src/personalities.py` — パーソナリティ（YAML読み込み）+ 口調（`Tone`モデル、`tones.yaml`読み込み）
 - `src/context.py` — 対象ディレクトリを走査しソースコードを結合テキスト化
 - `src/logger.py` — 実行結果を `outputs/run_<timestamp>/` にJSON + summary.md保存
 - `src/agents/base.py` — ベースエージェント（プロンプト読み込み + LLM呼び出し + 議論メソッド）
@@ -33,6 +34,10 @@ python -m src.main --request "..." --source /path --model claude-opus-4-6 --outp
 - `prompts/{pm,engineer,reviewer}.md` — 日本語システムプロンプト（差し戻し・議論指示含む）
 - `prompts/pm_rollback.md` — 差し戻し精査プロンプト
 - `prompts/pm_tiebreak.md` — 議論膠着時のPM裁定プロンプト
+- `personalities/{pm,engineer,reviewer}.yaml` — 各ロール7種のパーソナリティ定義
+- `personalities/tones.yaml` — 口調定義（おネエ言葉、丁寧な敬語、カジュアル、武士語）
+- `src/web/app.py` — FastAPI Web UI（SSEストリーミング、パーソナリティ/口調API）
+- `src/web/static/index.html` — LINE風チャットUI（パーソナリティ/口調選択、サマリ表示、折りたたみ詳細）
 
 ## Key Design Decisions
 
@@ -43,6 +48,10 @@ python -m src.main --request "..." --source /path --model claude-opus-4-6 --outp
 - **複数人体制**: Engineer/Reviewer最大2人。ラウンド制議論で収束、膠着時はPMが裁定。上限は `MAX_DISCUSSION_ROUNDS`
 - **ユーザー承認**: PM出力後とPM差し戻し棄却時に承認ポイント。CLIは`input()`、Webは`threading.Event`でブロック
 - **承認コールバック**: `ApprovalCallback`プロトコルでCLI/Web統一。`on_approval=None`で承認スキップ
+- **パーソナリティと口調の分離**: パーソナリティ（専門性・思考傾向）と口調（話し方のスタイル）は独立した概念。自由に組み合わせ可能
+- **サマリ発言**: 各エージェント出力に口調付きの短いサマリを含む。チャットUIではサマリをメイン表示、詳細は折りたたみ
+- **デフォルト口調**: `.env` の `DEFAULT_PM_TONE`, `DEFAULT_ENGINEER_TONE`, `DEFAULT_REVIEWER_TONE` で設定（デフォルト: `onee`）
+- **デフォルトパーソナリティ**: `.env` の `DEFAULT_PM_PERSONALITY`, `DEFAULT_ENGINEER_PERSONALITY`, `DEFAULT_REVIEWER_PERSONALITY` で設定（デフォルト: なし）
 
 ## Development Flow
 

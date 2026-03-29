@@ -6,7 +6,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from src.client import call_llm
-from src.personalities import Personality, get_personality
+from src.personalities import Personality, Tone, get_personality, get_tone
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -23,18 +23,27 @@ class BaseAgent:
     output_model: type[BaseModel]  # サブクラスで定義
     role: str  # サブクラスで定義 ("pm", "engineer", "reviewer")
 
-    def __init__(self, model: str = "claude-sonnet-4-6", personality_id: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str = "claude-sonnet-4-6",
+        personality_id: str | None = None,
+        tone_id: str | None = None,
+    ) -> None:
         self.model = model
         self._system_prompt: str | None = None
         self.personality: Personality | None = None
+        self.tone: Tone | None = None
         if personality_id:
             self.personality = get_personality(self.role, personality_id)
+        if tone_id:
+            self.tone = get_tone(tone_id)
 
     @property
     def system_prompt(self) -> str:
         if self._system_prompt is None:
             path = PROMPTS_DIR / self.prompt_file
             base_prompt = path.read_text(encoding="utf-8")
+            prompt = base_prompt
             if self.personality:
                 traits_text = "\n".join(f"- {t}" for t in self.personality.traits)
                 personality_section = (
@@ -44,9 +53,10 @@ class BaseAgent:
                     f"特徴:\n{traits_text}\n\n"
                     f"{self.personality.system_prompt_extra}"
                 )
-                self._system_prompt = base_prompt + personality_section
-            else:
-                self._system_prompt = base_prompt
+                prompt += personality_section
+            if self.tone:
+                prompt += f"\n\n## 口調\n{self.tone.prompt_instruction}"
+            self._system_prompt = prompt
         return self._system_prompt
 
     def _build_user_message(self, **kwargs: str) -> str | list[dict]:

@@ -34,10 +34,12 @@ def _run_pm_phase(
     on_event: OnEvent,
     logger: RunLogger,
     step_counter: list[int],
+    personality_id: str | None = None,
+    tone_id: str | None = None,
 ) -> PMOutput:
     print("🔹 PM エージェント実行中...")
     _emit(on_event, "agent_start", agent="pm")
-    pm_agent = PMAgent(model=model)
+    pm_agent = PMAgent(model=model, personality_id=personality_id, tone_id=tone_id)
 
     extra_context = ""
     if rollback_history:
@@ -53,7 +55,14 @@ def _run_pm_phase(
     step_counter[0] += 1
     logger.log_step("pm_output", step_counter[0], pm_output, pm_usage)
     _print_usage("完了", pm_usage)
-    _emit(on_event, "agent_complete", agent="pm", output=pm_output.model_dump(), usage=pm_usage)
+    _emit(
+        on_event,
+        "agent_complete",
+        agent="pm",
+        output=pm_output.model_dump(),
+        usage=pm_usage,
+        personality_name=pm_agent.personality.name if pm_agent.personality else None,
+    )
     return pm_output
 
 
@@ -68,6 +77,8 @@ def _handle_pm_approval(
     logger: RunLogger,
     config: PipelineConfig,
     step_counter: list[int],
+    personality_id: str | None = None,
+    tone_id: str | None = None,
 ) -> PMOutput | None:
     """PM出力のユーザー承認。Noneを返した場合はパイプライン終了。"""
     if on_approval is None:
@@ -104,6 +115,8 @@ def _handle_pm_approval(
             on_event,
             logger,
             step_counter,
+            personality_id=personality_id,
+            tone_id=tone_id,
         )
 
     print("  PM承認の再試行上限に到達しました。最新の出力で続行します。")
@@ -119,10 +132,11 @@ def _run_single_engineer(
     logger: RunLogger,
     step_counter: list[int],
     personality_id: str | None = None,
+    tone_id: str | None = None,
     agent_label: str = "engineer",
 ) -> tuple[EngineerOutput, dict]:
     _emit(on_event, "agent_start", agent=agent_label)
-    eng_agent = EngineerAgent(model=model, personality_id=personality_id)
+    eng_agent = EngineerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
 
     extra_context = ""
     if rollback_history:
@@ -144,6 +158,7 @@ def _run_single_engineer(
         agent=agent_label,
         output=eng_output.model_dump(),
         usage=eng_usage,
+        personality_name=eng_agent.personality.name if eng_agent.personality else None,
     )
     return eng_output, eng_usage
 
@@ -157,8 +172,11 @@ def _run_engineer_phase(
     on_event: OnEvent,
     logger: RunLogger,
     step_counter: list[int],
+    engineer_personality_ids: list[str] | None = None,
+    tone_id: str | None = None,
 ) -> EngineerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
+    pids = engineer_personality_ids or []
 
     if config.engineer_count == 1:
         eng_output, _ = _run_single_engineer(
@@ -169,15 +187,24 @@ def _run_engineer_phase(
             on_event,
             logger,
             step_counter,
+            personality_id=pids[0] if pids else None,
+            tone_id=tone_id,
         )
         return eng_output
 
     # 2人体制: 独立実行 → 議論 → 収束 or PM裁定
     from src.personalities import list_personality_ids
 
-    personality_ids = list_personality_ids("engineer")
-    pid_1 = personality_ids[0] if len(personality_ids) > 0 else None
-    pid_2 = personality_ids[1] if len(personality_ids) > 1 else None
+    if len(pids) >= 2:
+        pid_1, pid_2 = pids[0], pids[1]
+    elif len(pids) == 1:
+        all_ids = list_personality_ids("engineer")
+        pid_1 = pids[0]
+        pid_2 = next((p for p in all_ids if p != pid_1), all_ids[1] if len(all_ids) > 1 else None)
+    else:
+        all_ids = list_personality_ids("engineer")
+        pid_1 = all_ids[0] if len(all_ids) > 0 else None
+        pid_2 = all_ids[1] if len(all_ids) > 1 else None
 
     out1, _ = _run_single_engineer(
         pm_output_text,
@@ -188,6 +215,7 @@ def _run_engineer_phase(
         logger,
         step_counter,
         personality_id=pid_1,
+        tone_id=tone_id,
         agent_label="engineer_1",
     )
     out2, _ = _run_single_engineer(
@@ -199,6 +227,7 @@ def _run_engineer_phase(
         logger,
         step_counter,
         personality_id=pid_2,
+        tone_id=tone_id,
         agent_label="engineer_2",
     )
 
@@ -207,7 +236,7 @@ def _run_engineer_phase(
         _emit(on_event, "discussion_round", agent="engineer", round=round_num + 1)
         print(f"  Engineer 議論ラウンド {round_num + 1}...")
 
-        eng1 = EngineerAgent(model=model, personality_id=pid_1)
+        eng1 = EngineerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
         out1, _ = eng1.run_discussion(
             own_output=out1.model_dump_json(indent=2),
             other_output=out2.model_dump_json(indent=2),
@@ -215,7 +244,7 @@ def _run_engineer_phase(
             source_context=source_context,
         )
 
-        eng2 = EngineerAgent(model=model, personality_id=pid_2)
+        eng2 = EngineerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
         out2, _ = eng2.run_discussion(
             own_output=out2.model_dump_json(indent=2),
             other_output=out1.model_dump_json(indent=2),
@@ -283,10 +312,11 @@ def _run_single_reviewer(
     logger: RunLogger,
     step_counter: list[int],
     personality_id: str | None = None,
+    tone_id: str | None = None,
     agent_label: str = "reviewer",
 ) -> tuple[ReviewerOutput, dict]:
     _emit(on_event, "agent_start", agent=agent_label)
-    rev_agent = ReviewerAgent(model=model, personality_id=personality_id)
+    rev_agent = ReviewerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
 
     rev_output, rev_usage = rev_agent.run(
         request=request,
@@ -303,6 +333,7 @@ def _run_single_reviewer(
         agent=agent_label,
         output=rev_output.model_dump(),
         usage=rev_usage,
+        personality_name=rev_agent.personality.name if rev_agent.personality else None,
     )
     return rev_output, rev_usage
 
@@ -318,9 +349,12 @@ def _run_reviewer_phase(
     on_event: OnEvent,
     logger: RunLogger,
     step_counter: list[int],
+    reviewer_personality_ids: list[str] | None = None,
+    tone_id: str | None = None,
 ) -> ReviewerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
     eng_output_text = eng_output.model_dump_json(indent=2)
+    pids = reviewer_personality_ids or []
 
     if config.reviewer_count == 1:
         rev_output, _ = _run_single_reviewer(
@@ -333,15 +367,24 @@ def _run_reviewer_phase(
             on_event,
             logger,
             step_counter,
+            personality_id=pids[0] if pids else None,
+            tone_id=tone_id,
         )
         return rev_output
 
     # 2人体制
     from src.personalities import list_personality_ids
 
-    personality_ids = list_personality_ids("reviewer")
-    pid_1 = personality_ids[0] if len(personality_ids) > 0 else None
-    pid_2 = personality_ids[1] if len(personality_ids) > 1 else None
+    if len(pids) >= 2:
+        pid_1, pid_2 = pids[0], pids[1]
+    elif len(pids) == 1:
+        all_ids = list_personality_ids("reviewer")
+        pid_1 = pids[0]
+        pid_2 = next((p for p in all_ids if p != pid_1), all_ids[1] if len(all_ids) > 1 else None)
+    else:
+        all_ids = list_personality_ids("reviewer")
+        pid_1 = all_ids[0] if len(all_ids) > 0 else None
+        pid_2 = all_ids[1] if len(all_ids) > 1 else None
 
     out1, _ = _run_single_reviewer(
         request,
@@ -354,6 +397,7 @@ def _run_reviewer_phase(
         logger,
         step_counter,
         personality_id=pid_1,
+        tone_id=tone_id,
         agent_label="reviewer_1",
     )
     out2, _ = _run_single_reviewer(
@@ -367,6 +411,7 @@ def _run_reviewer_phase(
         logger,
         step_counter,
         personality_id=pid_2,
+        tone_id=tone_id,
         agent_label="reviewer_2",
     )
 
@@ -375,7 +420,7 @@ def _run_reviewer_phase(
         _emit(on_event, "discussion_round", agent="reviewer", round=round_num + 1)
         print(f"  Reviewer 議論ラウンド {round_num + 1}...")
 
-        rev1 = ReviewerAgent(model=model, personality_id=pid_1)
+        rev1 = ReviewerAgent(model=model, personality_id=pid_1, tone_id=tone_id)
         out1, _ = rev1.run_discussion(
             own_output=out1.model_dump_json(indent=2),
             other_output=out2.model_dump_json(indent=2),
@@ -385,7 +430,7 @@ def _run_reviewer_phase(
             source_context=source_context,
         )
 
-        rev2 = ReviewerAgent(model=model, personality_id=pid_2)
+        rev2 = ReviewerAgent(model=model, personality_id=pid_2, tone_id=tone_id)
         out2, _ = rev2.run_discussion(
             own_output=out2.model_dump_json(indent=2),
             other_output=out1.model_dump_json(indent=2),
@@ -402,6 +447,7 @@ def _run_reviewer_phase(
         merged_issues = list(dict.fromkeys(out1.issues + out2.issues))
         merged_fix = list(dict.fromkeys(out1.fix_instructions + out2.fix_instructions))
         return ReviewerOutput(
+            summary=out1.summary,
             review_result=out1.review_result,
             issues=merged_issues,
             fix_instructions=merged_fix,
@@ -511,6 +557,12 @@ def run_pipeline(
     on_event: OnEvent = None,
     on_approval: ApprovalCallback = None,
     config: PipelineConfig | None = None,
+    pm_personality_id: str | None = None,
+    engineer_personality_ids: list[str] | None = None,
+    reviewer_personality_ids: list[str] | None = None,
+    pm_tone_id: str | None = None,
+    engineer_tone_id: str | None = None,
+    reviewer_tone_id: str | None = None,
 ) -> Path:
     """PM → Engineer → Reviewer のパイプラインを実行し、ログディレクトリのパスを返す。
 
@@ -520,6 +572,18 @@ def run_pipeline(
     source_context = load_source_context(source_path)
     logger = RunLogger(output_dir)
     logger.log_input(request, source_path)
+
+    # Resolve personality/tone defaults from config
+    pm_pid = pm_personality_id or config.default_pm_personality
+    eng_pids = engineer_personality_ids
+    if eng_pids is None and config.default_engineer_personality:
+        eng_pids = [config.default_engineer_personality]
+    rev_pids = reviewer_personality_ids
+    if rev_pids is None and config.default_reviewer_personality:
+        rev_pids = [config.default_reviewer_personality]
+    pm_tid = pm_tone_id or config.default_pm_tone
+    eng_tid = engineer_tone_id or config.default_engineer_tone
+    rev_tid = reviewer_tone_id or config.default_reviewer_tone
 
     _emit(on_event, "pipeline_start", request=request)
 
@@ -536,6 +600,8 @@ def run_pipeline(
         on_event,
         logger,
         step_counter,
+        personality_id=pm_pid,
+        tone_id=pm_tid,
     )
 
     # --- ユーザー承認 ---
@@ -550,6 +616,8 @@ def run_pipeline(
         logger,
         config,
         step_counter,
+        personality_id=pm_pid,
+        tone_id=pm_tid,
     )
 
     if pm_output is None:
@@ -571,6 +639,8 @@ def run_pipeline(
             on_event,
             logger,
             step_counter,
+            engineer_personality_ids=eng_pids,
+            tone_id=eng_tid,
         )
 
         # Engineer差し戻し提案チェック
@@ -608,6 +678,8 @@ def run_pipeline(
                     on_event,
                     logger,
                     step_counter,
+                    personality_id=pm_pid,
+                    tone_id=pm_tid,
                 )
                 pm_output = _handle_pm_approval(
                     pm_output,
@@ -620,6 +692,8 @@ def run_pipeline(
                     logger,
                     config,
                     step_counter,
+                    personality_id=pm_pid,
+                    tone_id=pm_tid,
                 )
                 if pm_output is None:
                     break
@@ -640,6 +714,8 @@ def run_pipeline(
             on_event,
             logger,
             step_counter,
+            reviewer_personality_ids=rev_pids,
+            tone_id=rev_tid,
         )
 
         # Reviewer差し戻し提案チェック
@@ -680,6 +756,8 @@ def run_pipeline(
                         on_event,
                         logger,
                         step_counter,
+                        personality_id=pm_pid,
+                        tone_id=pm_tid,
                     )
                     pm_output = _handle_pm_approval(
                         pm_output,
@@ -692,6 +770,8 @@ def run_pipeline(
                         logger,
                         config,
                         step_counter,
+                        personality_id=pm_pid,
+                        tone_id=pm_tid,
                     )
                     if pm_output is None:
                         break

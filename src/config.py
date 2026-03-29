@@ -14,6 +14,17 @@ class PipelineConfig:
         self.reviewer_count: int = int(os.getenv("REVIEWER_COUNT", "1"))
         self.thinking_budget_tokens: int = int(os.getenv("THINKING_BUDGET_TOKENS", "10000"))
 
+        self.default_pm_personality: str | None = os.getenv("DEFAULT_PM_PERSONALITY", None)
+        self.default_engineer_personality: str | None = os.getenv(
+            "DEFAULT_ENGINEER_PERSONALITY", None
+        )
+        self.default_reviewer_personality: str | None = os.getenv(
+            "DEFAULT_REVIEWER_PERSONALITY", None
+        )
+        self.default_pm_tone: str = os.getenv("DEFAULT_PM_TONE", "onee")
+        self.default_engineer_tone: str = os.getenv("DEFAULT_ENGINEER_TONE", "onee")
+        self.default_reviewer_tone: str = os.getenv("DEFAULT_REVIEWER_TONE", "onee")
+
         if not 1 <= self.engineer_count <= 2:
             raise ValueError(f"ENGINEER_COUNT must be 1 or 2, got {self.engineer_count}")
         if not 1 <= self.reviewer_count <= 2:

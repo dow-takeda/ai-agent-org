@@ -108,6 +108,31 @@
   .badge-pass { background: #06C755; color: #fff; }
   .badge-fail { background: #FF3B30; color: #fff; }
 
+  /* Summary text */
+  .summary-text {
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 4px;
+  }
+
+  /* Detail toggle */
+  .detail-toggle {
+    font-size: 12px;
+    color: #888;
+    cursor: pointer;
+    padding: 4px 0;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    margin-top: 6px;
+    user-select: none;
+  }
+  .detail-toggle:hover { color: #555; }
+
+  .detail-content {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0,0,0,0.08);
+  }
+
   /* Code patches */
   .patch-toggle {
     font-size: 12px;
@@ -304,6 +329,51 @@
   }
   .btn-approve { background: #06C755; color: #fff; }
   .btn-reject { background: #FF3B30; color: #fff; }
+
+  /* Settings panel */
+  .settings-toggle {
+    font-size: 13px;
+    color: #5B86E5;
+    cursor: pointer;
+    margin-bottom: 10px;
+    user-select: none;
+    display: inline-block;
+  }
+  .settings-toggle:hover { text-decoration: underline; }
+
+  .settings-panel {
+    display: none;
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .settings-panel.open { display: block; }
+
+  .settings-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .settings-row:last-child { margin-bottom: 0; }
+  .settings-row label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    min-width: 30px;
+  }
+  .settings-row select {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 12px;
+    outline: none;
+    background: #fff;
+  }
+  .settings-row select:focus { border-color: #5B86E5; }
 </style>
 </head>
 <body>
@@ -330,6 +400,26 @@
       <label>ソースパス</label>
       <input type="text" id="sourcePath" name="source_path" placeholder="/path/to/target/source" required>
     </div>
+
+    <div class="settings-toggle" onclick="toggleSettings()">⚙ エージェント設定 ▼</div>
+    <div class="settings-panel" id="settingsPanel">
+      <div class="settings-row">
+        <label>PM</label>
+        <select id="pmPersonality"><option value="">パーソナリティ: デフォルト</option></select>
+        <select id="pmTone"><option value="">口調: デフォルト</option></select>
+      </div>
+      <div class="settings-row">
+        <label>Eng</label>
+        <select id="engineerPersonality"><option value="">パーソナリティ: デフォルト</option></select>
+        <select id="engineerTone"><option value="">口調: デフォルト</option></select>
+      </div>
+      <div class="settings-row">
+        <label>Rev</label>
+        <select id="reviewerPersonality"><option value="">パーソナリティ: デフォルト</option></select>
+        <select id="reviewerTone"><option value="">口調: デフォルト</option></select>
+      </div>
+    </div>
+
     <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください..."></textarea>
     <div class="bottom-row">
       <label class="file-label">
@@ -358,6 +448,46 @@ let currentRunId = null;
 
 const chatArea = document.getElementById("chatArea");
 let typingEl = null;
+
+function toggleSettings() {
+  document.getElementById("settingsPanel").classList.toggle("open");
+}
+
+async function loadSettings() {
+  try {
+    const [pRes, tRes] = await Promise.all([
+      fetch("/api/personalities"),
+      fetch("/api/tones"),
+    ]);
+    const personalities = await pRes.json();
+    const tones = await tRes.json();
+
+    for (const role of ["pm", "engineer", "reviewer"]) {
+      const selectId = role === "pm" ? "pmPersonality" : role === "engineer" ? "engineerPersonality" : "reviewerPersonality";
+      const sel = document.getElementById(selectId);
+      for (const p of personalities[role] || []) {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = `${p.name} — ${p.focus}`;
+        sel.appendChild(opt);
+      }
+    }
+
+    for (const selId of ["pmTone", "engineerTone", "reviewerTone"]) {
+      const sel = document.getElementById(selId);
+      for (const t of tones) {
+        const opt = document.createElement("option");
+        opt.value = t.id;
+        opt.textContent = t.name;
+        sel.appendChild(opt);
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load settings:", e);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", loadSettings);
 
 function onFileSelect(input) {
   const name = input.files.length ? input.files[0].name : "";
@@ -402,15 +532,16 @@ function removeTyping() {
   }
 }
 
-function addBubble(agentKey, html) {
+function addBubble(agentKey, html, nameOverride) {
   removeTyping();
   const agent = AGENTS[agentKey];
+  const displayName = nameOverride || agent.name;
   const row = document.createElement("div");
   row.className = "msg-row";
   row.innerHTML = `
     <div class="avatar ${agent.avatarClass}">${agent.avatar}</div>
     <div class="msg-content">
-      <div class="msg-name">${agent.name}</div>
+      <div class="msg-name">${displayName}</div>
       <div class="bubble ${agent.bubbleClass}">${html}</div>
     </div>
   `;
@@ -418,51 +549,81 @@ function addBubble(agentKey, html) {
   scrollToBottom();
 }
 
+function toggleDetail(id) {
+  const el = document.getElementById(id);
+  const toggle = el.previousElementSibling;
+  if (el.style.display === "none") {
+    el.style.display = "block";
+    toggle.textContent = "詳細を隠す ▲";
+  } else {
+    el.style.display = "none";
+    toggle.textContent = "詳細を表示 ▼";
+  }
+}
+
 function formatPM(output) {
-  let html = "<h4>要件</h4><ul>";
-  for (const r of output.requirements || []) html += `<li>${escHtml(r)}</li>`;
-  html += "</ul><h4>タスク</h4><ol>";
-  for (const t of output.tasks || []) html += `<li>${escHtml(t)}</li>`;
-  html += "</ol><h4>受入基準</h4><ul>";
-  for (const a of output.acceptance_criteria || []) html += `<li>${escHtml(a)}</li>`;
-  html += "</ul>";
-  return html;
+  const id = "detail-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  let summary = escHtml(output.summary || "").replace(/\n/g, "<br>");
+
+  let detail = "<h4>要件</h4><ul>";
+  for (const r of output.requirements || []) detail += `<li>${escHtml(r)}</li>`;
+  detail += "</ul><h4>タスク</h4><ol>";
+  for (const t of output.tasks || []) detail += `<li>${escHtml(t)}</li>`;
+  detail += "</ol><h4>受入基準</h4><ul>";
+  for (const a of output.acceptance_criteria || []) detail += `<li>${escHtml(a)}</li>`;
+  detail += "</ul>";
+
+  return `<div class="summary-text">${summary}</div>` +
+         `<div class="detail-toggle" onclick="toggleDetail('${id}')">詳細を表示 ▼</div>` +
+         `<div class="detail-content" id="${id}" style="display:none">${detail}</div>`;
 }
 
 function formatEngineer(output) {
-  let html = "<h4>設計ノート</h4><p>" + escHtml(output.design_notes || "").replace(/\n/g, "<br>") + "</p>";
+  const id = "detail-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  let summary = escHtml(output.summary || "").replace(/\n/g, "<br>");
+
+  let detail = "<h4>設計ノート</h4><p>" + escHtml(output.design_notes || "").replace(/\n/g, "<br>") + "</p>";
   const patches = output.code_patches || [];
   if (patches.length > 0) {
-    html += `<h4>コードパッチ (${patches.length}件)</h4>`;
+    detail += `<h4>コードパッチ (${patches.length}件)</h4>`;
     for (let i = 0; i < patches.length; i++) {
       const p = patches[i];
-      const id = "patch-" + Date.now() + "-" + i;
-      html += `<div class="patch-toggle" onclick="togglePatch('${id}')">${escHtml(p.file_path)} — ${escHtml(p.description)}</div>`;
-      html += `<div class="patch-content" id="${id}">${escHtml(p.patch)}</div>`;
+      const patchId = "patch-" + Date.now() + "-" + i;
+      detail += `<div class="patch-toggle" onclick="togglePatch('${patchId}')">${escHtml(p.file_path)} — ${escHtml(p.description)}</div>`;
+      detail += `<div class="patch-content" id="${patchId}">${escHtml(p.patch)}</div>`;
     }
   }
   if ((output.assumptions || []).length > 0) {
-    html += "<h4>前提事項</h4><ul>";
-    for (const a of output.assumptions) html += `<li>${escHtml(a)}</li>`;
-    html += "</ul>";
+    detail += "<h4>前提事項</h4><ul>";
+    for (const a of output.assumptions) detail += `<li>${escHtml(a)}</li>`;
+    detail += "</ul>";
   }
-  return html;
+
+  return `<div class="summary-text">${summary}</div>` +
+         `<div class="detail-toggle" onclick="toggleDetail('${id}')">詳細を表示 ▼</div>` +
+         `<div class="detail-content" id="${id}" style="display:none">${detail}</div>`;
 }
 
 function formatReviewer(output) {
+  const id = "detail-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  let summary = escHtml(output.summary || "").replace(/\n/g, "<br>");
+
   const isPASS = output.review_result === "PASS";
-  let html = `<span class="badge ${isPASS ? "badge-pass" : "badge-fail"}">${escHtml(output.review_result)}</span>`;
+  let detail = `<span class="badge ${isPASS ? "badge-pass" : "badge-fail"}">${escHtml(output.review_result)}</span>`;
   if ((output.issues || []).length > 0) {
-    html += "<h4>指摘事項</h4><ul>";
-    for (const i of output.issues) html += `<li>${escHtml(i)}</li>`;
-    html += "</ul>";
+    detail += "<h4>指摘事項</h4><ul>";
+    for (const i of output.issues) detail += `<li>${escHtml(i)}</li>`;
+    detail += "</ul>";
   }
   if ((output.fix_instructions || []).length > 0) {
-    html += "<h4>修正指示</h4><ul>";
-    for (const f of output.fix_instructions) html += `<li>${escHtml(f)}</li>`;
-    html += "</ul>";
+    detail += "<h4>修正指示</h4><ul>";
+    for (const f of output.fix_instructions) detail += `<li>${escHtml(f)}</li>`;
+    detail += "</ul>";
   }
-  return html;
+
+  return `<div class="summary-text">${summary}</div>` +
+         `<div class="detail-toggle" onclick="toggleDetail('${id}')">詳細を表示 ▼</div>` +
+         `<div class="detail-content" id="${id}" style="display:none">${detail}</div>`;
 }
 
 function escHtml(s) {
@@ -529,6 +690,14 @@ async function startRun() {
   formData.append("request_text", requestText);
   if (fileInput.files.length) formData.append("request_file", fileInput.files[0]);
 
+  // Personality & tone settings
+  formData.append("pm_personality", document.getElementById("pmPersonality").value);
+  formData.append("engineer_personality", document.getElementById("engineerPersonality").value);
+  formData.append("reviewer_personality", document.getElementById("reviewerPersonality").value);
+  formData.append("pm_tone", document.getElementById("pmTone").value);
+  formData.append("engineer_tone", document.getElementById("engineerTone").value);
+  formData.append("reviewer_tone", document.getElementById("reviewerTone").value);
+
   try {
     const res = await fetch("/api/run", { method: "POST", body: formData });
     const { run_id } = await res.json();
@@ -538,6 +707,9 @@ async function startRun() {
     eventSource.onmessage = (e) => {
       const event = JSON.parse(e.data);
       const agentKey = event.agent || "pm";
+      const pName = event.data?.personality_name;
+      const displayName = pName ? `${(AGENTS[agentKey] || {}).name || agentKey} (${pName})` : null;
+
       switch (event.type) {
         case "pipeline_start":
           addSystemMessage("パイプライン開始");
@@ -547,16 +719,15 @@ async function startRun() {
           break;
         case "agent_complete":
           if (agentKey.startsWith("pm") && !agentKey.includes("tiebreak")) {
-            addBubble(agentKey, formatPM(event.data.output));
+            addBubble(agentKey, formatPM(event.data.output), displayName);
           } else if (agentKey.startsWith("engineer")) {
-            addBubble(agentKey, formatEngineer(event.data.output));
+            addBubble(agentKey, formatEngineer(event.data.output), displayName);
           } else if (agentKey.startsWith("reviewer")) {
-            addBubble(agentKey, formatReviewer(event.data.output));
+            addBubble(agentKey, formatReviewer(event.data.output), displayName);
           } else if (agentKey === "pm_tiebreak") {
-            // PM裁定の出力はEngineerまたはReviewer形式
             const output = event.data.output;
-            if (output.code_patches) addBubble("pm_tiebreak", formatEngineer(output));
-            else addBubble("pm_tiebreak", formatReviewer(output));
+            if (output.code_patches) addBubble("pm_tiebreak", formatEngineer(output), displayName);
+            else addBubble("pm_tiebreak", formatReviewer(output), displayName);
           }
           break;
         case "approval_request":
