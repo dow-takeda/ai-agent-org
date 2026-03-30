@@ -1,0 +1,22 @@
+services:
+  ai-agent-org:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - ANTHROPIC_API_KEY
+      - MAX_ROLLBACK_ATTEMPTS
+      - MAX_DISCUSSION_ROUNDS
+      - ENGINEER_COUNT
+      - REVIEWER_COUNT
+      - THINKING_BUDGET_TOKENS
+      - DEFAULT_PM_PERSONALITY
+      - DEFAULT_ENGINEER_PERSONALITY
+      - DEFAULT_REVIEWER_PERSONALITY
+      - DEFAULT_PM_TONE
+      - DEFAULT_ENGINEER_TONE
+      - DEFAULT_REVIEWER_TONE
+    volumes:
+      - ${SOURCE_PATH:-.}:/workspace/source:ro
+      - ./outputs:/workspace/outputs
+    command: ["--web", "--port", "8000", "--source", "/workspace/source", "--output-dir", "/workspace/outputs"]

@@ -133,12 +133,20 @@ def _handle_pm_approval(
 
     attempts = 0
     while attempts < config.max_rollback_attempts:
-        _emit(on_event, "approval_request", approval_type="pm_output")
+        approval_summary = "PMの要件定義が完了しました。承認しますか？"
+        approval_details = pm_output.model_dump()
+        _emit(
+            on_event,
+            "approval_request",
+            approval_type="pm_output",
+            summary=approval_summary,
+            details=approval_details,
+        )
         approval = on_approval(
             ApprovalRequest(
                 approval_type="pm_output",
-                summary="PMの要件定義が完了しました。承認しますか？",
-                details=pm_output.model_dump(),
+                summary=approval_summary,
+                details=approval_details,
             )
         )
         _emit(on_event, "approval_result", approved=approval.approved)
@@ -576,15 +584,23 @@ def _handle_rollback(
     # PM棄却 → ユーザーに最終確認
     _tprint(f"  PMが差し戻しを棄却しました: {pm_decision.reason}")
     if on_approval is not None:
-        _emit(on_event, "approval_request", approval_type="rollback_override")
+        rb_summary = f"PMが差し戻しを棄却しました: {pm_decision.reason}"
+        rb_details = {
+            "proposal": proposal.model_dump(),
+            "pm_decision": pm_decision.model_dump(),
+        }
+        _emit(
+            on_event,
+            "approval_request",
+            approval_type="rollback_override",
+            summary=rb_summary,
+            details=rb_details,
+        )
         approval = on_approval(
             ApprovalRequest(
                 approval_type="rollback_override",
-                summary=f"PMが差し戻しを棄却しました: {pm_decision.reason}",
-                details={
-                    "proposal": proposal.model_dump(),
-                    "pm_decision": pm_decision.model_dump(),
-                },
+                summary=rb_summary,
+                details=rb_details,
             )
         )
         _emit(on_event, "approval_result", approved=approval.approved)
@@ -639,6 +655,15 @@ def run_pipeline(
 
     _emit(on_event, "pipeline_start", request=request)
 
+    # ソースルート情報をリクエストに付与（パス正規化）
+    source_root_note = (
+        f"[ソースコードのルートパス]\n"
+        f"ユーザーが指定したソースコードのルートは「{source_path}」です。\n"
+        f"ユーザーがこのパス配下のファイルを絶対パスで言及する場合は、"
+        f"ルートからの相対パスとして解釈してください。\n\n"
+    )
+    request_with_root = source_root_note + request
+
     rollback_count = 0
     rollback_history: list[dict] = []
     step_counter = [0]
@@ -646,7 +671,7 @@ def run_pipeline(
     # --- Phase 0: シニアエンジニア（スケルトンで影響範囲分析）---
     source_skeleton = load_source_skeleton(source_path)
     senior_output = _run_senior_engineer_phase(
-        request,
+        request_with_root,
         source_skeleton,
         model,
         on_event,
@@ -659,7 +684,7 @@ def run_pipeline(
 
     # --- Phase 1: PM（シニアエンジニアの報告を元に要件整理）---
     pm_output = _run_pm_phase(
-        request,
+        request_with_root,
         senior_output_text,
         model,
         rollback_history,
@@ -673,7 +698,7 @@ def run_pipeline(
     # --- ユーザー承認 ---
     pm_output = _handle_pm_approval(
         pm_output,
-        request,
+        request_with_root,
         senior_output_text,
         model,
         rollback_history,
@@ -740,7 +765,7 @@ def run_pipeline(
                 )
                 _tprint(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
                 pm_output = _run_pm_phase(
-                    request,
+                    request_with_root,
                     senior_output_text,
                     model,
                     rollback_history,
@@ -752,7 +777,7 @@ def run_pipeline(
                 )
                 pm_output = _handle_pm_approval(
                     pm_output,
-                    request,
+                    request_with_root,
                     senior_output_text,
                     model,
                     rollback_history,
@@ -775,7 +800,7 @@ def run_pipeline(
 
         # --- Phase 3: Reviewer ---
         rev_output = _run_reviewer_phase(
-            request,
+            request_with_root,
             pm_output,
             eng_output,
             files_content,
@@ -820,7 +845,7 @@ def run_pipeline(
                 _tprint(f"  差し戻し実行 ({rollback_count}/{config.max_rollback_attempts})")
                 if target == "pm":
                     pm_output = _run_pm_phase(
-                        request,
+                        request_with_root,
                         senior_output_text,
                         model,
                         rollback_history,
@@ -832,7 +857,7 @@ def run_pipeline(
                     )
                     pm_output = _handle_pm_approval(
                         pm_output,
-                        request,
+                        request_with_root,
                         senior_output_text,
                         model,
                         rollback_history,
