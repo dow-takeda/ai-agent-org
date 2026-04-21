@@ -16,7 +16,7 @@ class TestIndexPage:
     def test_get_index(self):
         response = client.get("/")
         assert response.status_code == 200
-        assert "AI改修チーム" in response.text
+        assert "AI エージェント組織" in response.text
         assert "text/html" in response.headers["content-type"]
 
     def test_index_has_talk_link(self):
@@ -71,8 +71,9 @@ class TestTalkAPI:
 
 
 class TestStartRun:
-    def test_start_run_returns_run_id(self):
-        with patch("src.web.app.run_pipeline"):
+    def test_start_run_legacy_form_returns_run_id(self):
+        """旧 form 形式（modification theme）の下位互換。"""
+        with patch("src.themes.modification.run_pipeline"):
             response = client.post(
                 "/api/run",
                 data={"request_text": "テスト要求", "source_path": "/var/src"},  # noqa: S108
@@ -81,6 +82,29 @@ class TestStartRun:
         data = response.json()
         assert "run_id" in data
         assert len(data["run_id"]) == 8
+        assert data.get("theme_id") == "modification"
+
+    def test_start_run_json_theme_modification(self):
+        with patch("src.themes.modification.run_pipeline"):
+            response = client.post(
+                "/api/run",
+                json={
+                    "theme_id": "modification",
+                    "request_text": "テスト",
+                    "source_path": "/var/src",  # noqa: S108
+                    "roles": [{"role_id": "pm", "index": 1}],
+                },
+            )
+        assert response.status_code == 200
+        assert response.json().get("theme_id") == "modification"
+
+    def test_start_run_invalid_theme(self):
+        response = client.post(
+            "/api/run",
+            json={"theme_id": "nonexistent", "request_text": "x", "source_path": "/x"},
+        )
+        assert response.status_code == 200
+        assert "error" in response.json()
 
 
 class TestSSEStream:

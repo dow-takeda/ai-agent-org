@@ -77,3 +77,33 @@ class TalkMessage(BaseModel):
 
 class TalkResponse(BaseModel):
     reply: str = Field(description="エージェントの応答文（指定された口調・パーソナリティで）")
+
+
+class InvestigationReport(BaseModel):
+    """障害調査テーマで Investigator が出力する調査報告書。"""
+
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
+    root_cause: str = Field(description="推定される根本原因")
+    hypotheses: list[str] = Field(description="検討した仮説と採用/棄却の理由")
+    evidence: list[str] = Field(description="根拠となるコード箇所や挙動")
+    affected_files: list[str] = Field(description="関連するファイルパス一覧")
+    reproduction_steps: list[str] = Field(description="再現手順")
+    severity: str = Field(description="深刻度: critical / high / medium / low")
+    recommended_actions: list[str] = Field(
+        description="次に取るべき推奨アクション（修正実装は含めない）"
+    )
+    rollback_proposal: RollbackProposal | None = Field(
+        default=None, description="シニアエンジニアへの差し戻し提案（調査範囲の見直しが必要な場合）"
+    )
+
+
+class InvestigationReviewerOutput(BaseModel):
+    """障害調査テーマで Reviewer が出力するレビュー結果。"""
+
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
+    review_result: str = Field(description="PASS または FAIL")
+    concerns: list[str] = Field(description="指摘事項（仮説の飛躍・根拠不足など）")
+    missing_investigations: list[str] = Field(description="追加で調査すべき観点")
+    rollback_proposal: RollbackProposal | None = Field(
+        default=None, description="上流（Investigator または Senior）への差し戻し提案"
+    )

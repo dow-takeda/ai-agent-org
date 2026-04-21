@@ -3,11 +3,57 @@ from src.schemas import (
     ApprovalResult,
     CodePatch,
     EngineerOutput,
+    InvestigationReport,
+    InvestigationReviewerOutput,
     PMOutput,
     PMRollbackDecision,
     ReviewerOutput,
     RollbackProposal,
 )
+
+
+def test_investigation_report_roundtrip():
+    data = {
+        "summary": "調査してみたわよ〜",
+        "root_cause": "ログイン処理のセッショントークン初期化漏れ",
+        "hypotheses": ["仮説A", "仮説B（棄却）"],
+        "evidence": ["login.pyの42行目でトークン未設定"],
+        "affected_files": ["src/login.py", "src/session.py"],
+        "reproduction_steps": ["ログインする"],
+        "severity": "high",
+        "recommended_actions": ["追加調査: セッション期限切れ処理"],
+        "rollback_proposal": None,
+    }
+    report = InvestigationReport.model_validate(data)
+    assert report.root_cause.startswith("ログイン")
+    assert report.severity == "high"
+    assert report.model_dump() == data
+
+
+def test_investigation_reviewer_output_roundtrip():
+    data = {
+        "summary": "レビューしたわよ〜",
+        "review_result": "PASS",
+        "concerns": [],
+        "missing_investigations": [],
+        "rollback_proposal": None,
+    }
+    result = InvestigationReviewerOutput.model_validate(data)
+    assert result.review_result == "PASS"
+    assert result.model_dump() == data
+
+
+def test_investigation_reviewer_output_fail():
+    data = {
+        "summary": "これは甘いわ",
+        "review_result": "FAIL",
+        "concerns": ["根拠が薄い"],
+        "missing_investigations": ["関連モジュールの調査"],
+        "rollback_proposal": None,
+    }
+    result = InvestigationReviewerOutput.model_validate(data)
+    assert result.review_result == "FAIL"
+    assert "関連モジュールの調査" in result.missing_investigations
 
 
 def test_pm_output_roundtrip():
