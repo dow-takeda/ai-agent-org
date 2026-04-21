@@ -8,7 +8,10 @@ Multi-agent AI system that processes code modification requests through a PM →
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+pre-commit install   # ← 必須: commit/push時のチェックフックを自動インストール
 ```
+
+`pre-commit install` は一度実行すれば済みます。これにより `.git/hooks/pre-commit` と `.git/hooks/pre-push` が設置され、以降のコミット・プッシュ時にチェックが自動で走ります。
 
 Create `.env` with your API key:
 
@@ -59,18 +62,28 @@ python -m src.main --web --port 3000
 
 ## Development
 
+### 自動チェック（pre-commit フック）
+
+セットアップ時に `pre-commit install` を実行済みなら、以下が **自動で強制** されます。意識的に `ruff` や `bandit` を叩く必要はありません。
+
+| タイミング | 走るチェック | 失敗時の挙動 |
+|---|---|---|
+| `git commit` | ruff lint + format / bandit / detect-private-key / large-files / merge-conflict / EOF / trailing-whitespace | commit が中断される |
+| `git push`   | pytest (全テスト) | push が中断される |
+
+> ⚠ **`--no-verify` でのバイパスは禁止** です。フックが失敗する場合は原因を修正してください。
+
+### 手動で個別に実行したい場合
+
 ```bash
-# Run tests
+# 全フックを全ファイルに対して実行
+pre-commit run --all-files
+
+# 個別コマンド（通常は不要）
 pytest
-
-# Lint
 ruff check src/ tests/
-
-# Security scan
+ruff format --check src/ tests/
 bandit -r src/ -c pyproject.toml
-
-# Set up pre-commit hooks
-pre-commit install
 ```
 
 ## Development Flow (with Claude Code)
