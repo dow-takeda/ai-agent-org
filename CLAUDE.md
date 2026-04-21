@@ -23,22 +23,27 @@ python -m src.main --request "..." --source /path --model claude-opus-4-6 --outp
 ## Architecture
 
 - `src/main.py` — CLIエントリポイント (argparse + CLI承認コールバック)
-- `src/pipeline.py` — 双方向パイプライン（差し戻しループ・複数人議論・ユーザー承認）
+- `src/pipeline.py` — 改修要望パイプライン（差し戻しループ・複数人議論・ユーザー承認）
+- `src/themes/` — **要望テーマのフレームワーク**。`Theme` / `RoleSlot` / `ThemeRunContext` + テーマ別実装
+  - `src/themes/base.py` — データクラス定義
+  - `src/themes/phases.py` — 共通フェーズヘルパ（Senior Engineer など）
+  - `src/themes/modification.py` — 改修要望テーマ（既存 `pipeline.run_pipeline` に委譲）
+  - `src/themes/investigation.py` — 障害調査テーマ（Senior → Investigator×2 → Reviewer）
 - `src/config.py` — パイプライン設定ローダー（.envから読み込み）
 - `src/client.py` — Anthropic API呼び出し (structured output + streaming + extended thinking)
-- `src/schemas.py` — Pydantic models: `PMOutput`, `EngineerOutput`, `ReviewerOutput`（各outputにsummaryフィールド付き）, `RollbackProposal`, `PMRollbackDecision`, `ApprovalRequest`, `ApprovalResult`
+- `src/schemas.py` — Pydantic models: `PMOutput`, `EngineerOutput`, `ReviewerOutput`, `InvestigationReport`, `InvestigationReviewerOutput`, `RollbackProposal`, `PMRollbackDecision`, `ApprovalRequest`, `ApprovalResult` など
 - `src/personalities.py` — パーソナリティ（YAML読み込み）+ 口調（`Tone`モデル、`tones.yaml`読み込み）
 - `src/context.py` — 対象ディレクトリを走査しソースコードを結合テキスト化
 - `src/logger.py` — 実行結果を `outputs/run_<timestamp>/` にJSON + summary.md保存
-- `src/agents/base.py` — ベースエージェント（プロンプト読み込み + LLM呼び出し + 議論メソッド）
-- `src/agents/{pm,engineer,reviewer}.py` — 各ロールのエージェント（PMは差し戻し精査機能付き）
-- `prompts/{pm,engineer,reviewer}.md` — 日本語システムプロンプト（差し戻し・議論指示含む）
-- `prompts/pm_rollback.md` — 差し戻し精査プロンプト
-- `prompts/pm_tiebreak.md` — 議論膠着時のPM裁定プロンプト
-- `personalities/{pm,engineer,reviewer}.yaml` — 各ロール7種のパーソナリティ定義
+- `src/agents/base.py` — ベースエージェント（プロンプト読み込み + LLM呼び出し + 議論メソッド + `prompt_override`）
+- `src/agents/{pm,engineer,reviewer,senior_engineer,investigator}.py` — 各ロールのエージェント
+- `prompts/{pm,engineer,reviewer,senior_engineer}.md` — 改修要望テーマの日本語システムプロンプト
+- `prompts/pm_rollback.md` / `prompts/pm_tiebreak.md` — 差し戻し・裁定プロンプト
+- `prompts/themes/investigation/*.md` — 障害調査テーマ用プロンプト
+- `personalities/{pm,engineer,reviewer,senior_engineer,investigator}.yaml` — 各ロールのパーソナリティ定義
 - `personalities/tones.yaml` — 口調定義（おネエ言葉、丁寧な敬語、カジュアル、武士語）
-- `src/web/app.py` — FastAPI Web UI（SSEストリーミング、パーソナリティ/口調API）
-- `src/web/static/index.html` — LINE風チャットUI（パーソナリティ/口調選択、サマリ表示、折りたたみ詳細）
+- `src/web/app.py` — FastAPI Web UI（SSEストリーミング、テーマ/パーソナリティ/口調API）
+- `src/web/static/index.html` — LINE風チャットUI（テーマタブ、動的設定パネル、プロンプト編集）
 
 ## Key Design Decisions
 
@@ -53,6 +58,9 @@ python -m src.main --request "..." --source /path --model claude-opus-4-6 --outp
 - **サマリ発言**: 各エージェント出力に口調付きの短いサマリを含む。チャットUIではサマリをメイン表示、詳細は折りたたみ
 - **デフォルト口調**: `.env` の `DEFAULT_PM_TONE`, `DEFAULT_ENGINEER_TONE`, `DEFAULT_REVIEWER_TONE` で設定（デフォルト: `onee`）
 - **デフォルトパーソナリティ**: `.env` の `DEFAULT_PM_PERSONALITY`, `DEFAULT_ENGINEER_PERSONALITY`, `DEFAULT_REVIEWER_PERSONALITY` で設定（デフォルト: なし）
+- **要望テーマ**: `src/themes/` に Theme 定義を追加することで新規テーマを増やせる。第1次は「改修要望」「障害調査」の2テーマを提供。各テーマは登場役職・パイプラインフロー・出力スキーマ・ソースパス要否（`required` / `optional` / `unused`）を個別に定義する
+- **プロンプト編集（UI 実行時）**: Web UI の各役職に展開される textarea で prompt を編集可能。編集結果は当該実行のみ有効で、ファイルは書き換わらない（`BaseAgent(prompt_override=...)` で注入）
+- **CLI は改修要望のみ**: `--theme` フラグは提供しない。CLI 実行は従来互換
 
 ## Development Flow
 

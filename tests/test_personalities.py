@@ -14,6 +14,7 @@ from src.personalities import (
 
 ROLES = ("pm", "engineer", "reviewer")
 MIN_PERSONALITIES = 7
+ALL_ROLES = ("pm", "engineer", "reviewer", "senior_engineer", "investigator")
 
 
 class TestLoadPersonalities:
@@ -43,6 +44,14 @@ class TestLoadPersonalities:
     def test_invalid_role_raises(self):
         with pytest.raises(ValueError, match="Invalid role"):
             load_personalities("invalid")
+
+    def test_investigator_role_loads(self):
+        pers = load_personalities("investigator")
+        assert len(pers) >= 3
+        for p in pers:
+            assert p.role == "investigator"
+            assert p.focus
+            assert p.system_prompt_extra
 
 
 class TestGetPersonality:

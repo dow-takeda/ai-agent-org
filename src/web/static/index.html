@@ -430,6 +430,104 @@
     background: #fff;
   }
   .settings-row select:focus { border-color: #5B86E5; }
+
+  /* Theme tabs */
+  .theme-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 14px;
+    background: #6582ab;
+    overflow-x: auto;
+  }
+  .theme-tab {
+    padding: 7px 14px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .theme-tab:hover { background: rgba(255,255,255,0.2); }
+  .theme-tab.active {
+    background: #fff;
+    color: #2c4770;
+    border-color: #fff;
+  }
+
+  /* Role row with count controls + prompt editor */
+  .role-group {
+    border-top: 1px solid #eee;
+    padding: 8px 0;
+  }
+  .role-group:first-child { border-top: none; }
+  .role-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 4px;
+  }
+  .role-group-header .role-label { flex: 1; }
+  .role-count-btn {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    color: #555;
+  }
+  .role-count-btn:hover { background: #eee; }
+  .role-count-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .role-count-num { min-width: 22px; text-align: center; }
+
+  .prompt-toggle {
+    font-size: 11px;
+    color: #5B86E5;
+    cursor: pointer;
+    padding: 2px 0;
+    user-select: none;
+    margin-left: auto;
+  }
+  .prompt-toggle:hover { color: #3f6ad0; }
+
+  .prompt-editor {
+    margin-top: 4px;
+    display: none;
+  }
+  .prompt-editor.open { display: block; }
+  .prompt-editor textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: "SF Mono", "Fira Code", monospace;
+    resize: vertical;
+    outline: none;
+  }
+  .prompt-editor textarea:focus { border-color: #5B86E5; }
+  .prompt-editor-hint {
+    font-size: 10px;
+    color: #999;
+    margin-bottom: 4px;
+  }
+
+  .theme-description {
+    font-size: 11px;
+    color: #999;
+    margin: 2px 0 8px;
+  }
 </style>
 </head>
 <body>
@@ -437,25 +535,29 @@
 <div class="header">
   <span class="header-icon">💬</span>
   <div>
-    AI改修チーム
-    <div class="header-members">Senior Engineer, PM, Engineer, Reviewer</div>
+    AI エージェント組織
+    <div class="header-members" id="themeDescription">テーマを選んで依頼を送信</div>
   </div>
   <div class="header-nav"><a href="/talk">🗨 談話室へ</a></div>
+</div>
+
+<div class="theme-tabs" id="themeTabs">
+  <!-- 動的にloadThemesで生成 -->
 </div>
 
 <div class="chat-area" id="chatArea">
   <div class="welcome" id="welcome">
     <div class="welcome-icon">🤖</div>
-    改修要求を入力して送信すると<br>
+    テーマを選び依頼内容を入力すると<br>
     AIチームが検討を開始します
   </div>
 </div>
 
 <div class="input-area">
   <form id="runForm" onsubmit="return false;">
-    <div class="form-row">
+    <div class="form-row" id="sourcePathRow">
       <label>ソースパス</label>
-      <input type="text" id="sourcePath" name="source_path" placeholder="/path/to/target/source" required>
+      <input type="text" id="sourcePath" name="source_path" placeholder="/path/to/target/source">
       <button type="button" class="btn-browse" onclick="toggleBrowser()">📂</button>
     </div>
     <div class="file-browser" id="fileBrowser" style="display:none">
@@ -469,10 +571,10 @@
 
     <div class="settings-toggle" onclick="toggleSettings()">⚙ エージェント設定 ▼</div>
     <div class="settings-panel" id="settingsPanel">
-      <!-- 動的にloadSettingsで生成 -->
+      <!-- 動的にrenderThemeSettingsで生成 -->
     </div>
 
-    <textarea id="requestText" name="request_text" placeholder="改修要求を入力してください（ファイルは相対パスで指定: 例 src/context.py）"></textarea>
+    <textarea id="requestText" name="request_text" placeholder="依頼内容を入力してください"></textarea>
     <div class="bottom-row">
       <button type="button" class="btn-send" id="btnSend" onclick="startRun()">▶</button>
     </div>
@@ -511,13 +613,16 @@ function toggleSettings() {
   document.getElementById("settingsPanel").classList.toggle("open");
 }
 
-function _createRow(label, pId, tId, personalities, tones) {
+function _createSettingsRow(roleId, index, personalities, tones) {
   const row = document.createElement("div");
   row.className = "settings-row";
-  row.innerHTML = `<label>${label}</label>`;
+  row.setAttribute("data-role", roleId);
+  row.setAttribute("data-index", String(index));
+  const suffix = index > 1 ? ` ${index}` : "";
+  row.innerHTML = `<label class="inline-label">#${index}</label>`;
 
   const pSel = document.createElement("select");
-  pSel.id = pId;
+  pSel.className = "personality-select";
   pSel.innerHTML = '<option value="">パーソナリティ: デフォルト</option>';
   for (const p of personalities) {
     const opt = document.createElement("option");
@@ -528,7 +633,7 @@ function _createRow(label, pId, tId, personalities, tones) {
   row.appendChild(pSel);
 
   const tSel = document.createElement("select");
-  tSel.id = tId;
+  tSel.className = "tone-select";
   tSel.innerHTML = '<option value="">口調: デフォルト</option>';
   for (const t of tones) {
     const opt = document.createElement("option");
@@ -540,53 +645,231 @@ function _createRow(label, pId, tId, personalities, tones) {
   return row;
 }
 
+// --- Theme-aware settings ---
+// themeState: { themes, personalities, tones, config, currentThemeId, prompts:{themeId->{roleId->text}}, counts:{themeId->{roleId->int}}, edited:{themeId->{roleId:{index:{personality,tone,prompt}}}} }
+const themeState = {
+  themes: [],
+  personalities: {},
+  tones: [],
+  config: {},
+  currentThemeId: null,
+  promptsByTheme: {},
+  countsByTheme: {},
+  editsByTheme: {},
+};
+
 async function loadSettings() {
   try {
-    const [cRes, pRes, tRes] = await Promise.all([
+    const [cRes, thRes, pRes, tRes] = await Promise.all([
       fetch("/api/config"),
+      fetch("/api/themes"),
       fetch("/api/personalities"),
       fetch("/api/tones"),
     ]);
-    const config = await cRes.json();
-    const personalities = await pRes.json();
-    const tones = await tRes.json();
-    const panel = document.getElementById("settingsPanel");
+    themeState.config = await cRes.json();
+    themeState.themes = await thRes.json();
+    themeState.personalities = await pRes.json();
+    themeState.tones = await tRes.json();
 
-    // Senior Engineer
-    panel.appendChild(_createRow("SE", "seniorEngineerPersonality", "seniorEngineerTone",
-      personalities.senior_engineer || [], tones));
-
-    // PM
-    panel.appendChild(_createRow("PM", "pmPersonality", "pmTone",
-      personalities.pm || [], tones));
-
-    // Engineers (人数に応じて動的生成)
-    const engCount = config.engineer_count || 1;
-    for (let i = 1; i <= engCount; i++) {
-      const label = engCount === 1 ? "Eng" : `Eng${i}`;
-      panel.appendChild(_createRow(label, `engineer${i}Personality`, `engineer${i}Tone`,
-        personalities.engineer || [], tones));
-    }
-
-    // Reviewers (人数に応じて動的生成)
-    const revCount = config.reviewer_count || 1;
-    for (let i = 1; i <= revCount; i++) {
-      const label = revCount === 1 ? "Rev" : `Rev${i}`;
-      panel.appendChild(_createRow(label, `reviewer${i}Personality`, `reviewer${i}Tone`,
-        personalities.reviewer || [], tones));
-    }
-
-    // 設定値を保存（startRunで使用）
-    window._agentConfig = { engineerCount: engCount, reviewerCount: revCount };
+    renderThemeTabs();
 
     // コンテナ内ならデフォルトソースパスを設定
-    if (config.default_source) {
+    if (themeState.config.default_source) {
       const sp = document.getElementById("sourcePath");
-      if (!sp.value) sp.value = config.default_source;
+      if (!sp.value) sp.value = themeState.config.default_source;
     }
+
+    // 初期テーマ選択（改修要望をデフォルト）
+    const initial = themeState.themes.find(t => t.id === "modification") || themeState.themes[0];
+    if (initial) await selectTheme(initial.id);
   } catch (e) {
     console.warn("Failed to load settings:", e);
   }
+}
+
+function renderThemeTabs() {
+  const bar = document.getElementById("themeTabs");
+  bar.innerHTML = "";
+  for (const theme of themeState.themes) {
+    const tab = document.createElement("div");
+    tab.className = "theme-tab";
+    tab.setAttribute("data-theme-id", theme.id);
+    tab.textContent = theme.name;
+    tab.onclick = () => selectTheme(theme.id);
+    bar.appendChild(tab);
+  }
+}
+
+async function selectTheme(themeId) {
+  captureCurrentEdits();
+  themeState.currentThemeId = themeId;
+  // Tab active state
+  document.querySelectorAll(".theme-tab").forEach(el => {
+    el.classList.toggle("active", el.getAttribute("data-theme-id") === themeId);
+  });
+  const theme = themeState.themes.find(t => t.id === themeId);
+  if (!theme) return;
+
+  // Theme description
+  document.getElementById("themeDescription").textContent = theme.description;
+
+  // Request label & placeholder
+  const txt = document.getElementById("requestText");
+  txt.placeholder = theme.request_placeholder || "依頼内容を入力してください";
+
+  // Source path visibility
+  const row = document.getElementById("sourcePathRow");
+  const sp = document.getElementById("sourcePath");
+  if (theme.source_path_mode === "unused") {
+    row.style.display = "none";
+    sp.required = false;
+  } else {
+    row.style.display = "flex";
+    sp.required = theme.source_path_mode === "required";
+  }
+
+  // Prompts
+  if (!themeState.promptsByTheme[themeId]) {
+    try {
+      const res = await fetch(`/api/themes/${themeId}/prompts`);
+      const data = await res.json();
+      if (!data.error) themeState.promptsByTheme[themeId] = data;
+    } catch (e) {
+      console.warn("Failed to load prompts:", e);
+      themeState.promptsByTheme[themeId] = {};
+    }
+  }
+
+  // Counts (初期値: role.default_count)
+  if (!themeState.countsByTheme[themeId]) {
+    themeState.countsByTheme[themeId] = {};
+    for (const role of theme.roles) {
+      themeState.countsByTheme[themeId][role.role_id] = role.default_count;
+    }
+  }
+
+  renderThemeSettings(theme);
+}
+
+function renderThemeSettings(theme) {
+  const panel = document.getElementById("settingsPanel");
+  panel.innerHTML = "";
+  const themeId = theme.id;
+  const prompts = themeState.promptsByTheme[themeId] || {};
+  const counts = themeState.countsByTheme[themeId] || {};
+  const edits = themeState.editsByTheme[themeId] || {};
+
+  for (const role of theme.roles) {
+    const count = counts[role.role_id] || role.default_count;
+    const group = document.createElement("div");
+    group.className = "role-group";
+    group.setAttribute("data-role-id", role.role_id);
+
+    // Header with count +/-
+    const header = document.createElement("div");
+    header.className = "role-group-header";
+    const label = document.createElement("span");
+    label.className = "role-label";
+    label.textContent = role.display_name;
+    header.appendChild(label);
+
+    if (role.max_count > role.min_count) {
+      const minus = document.createElement("button");
+      minus.type = "button";
+      minus.className = "role-count-btn";
+      minus.textContent = "−";
+      minus.disabled = count <= role.min_count;
+      minus.onclick = () => changeRoleCount(role.role_id, -1);
+      header.appendChild(minus);
+      const num = document.createElement("span");
+      num.className = "role-count-num";
+      num.textContent = String(count);
+      header.appendChild(num);
+      const plus = document.createElement("button");
+      plus.type = "button";
+      plus.className = "role-count-btn";
+      plus.textContent = "+";
+      plus.disabled = count >= role.max_count;
+      plus.onclick = () => changeRoleCount(role.role_id, +1);
+      header.appendChild(plus);
+    }
+
+    const promptToggle = document.createElement("span");
+    promptToggle.className = "prompt-toggle";
+    promptToggle.textContent = "✏ プロンプト";
+    promptToggle.onclick = () => {
+      const editor = group.querySelector(".prompt-editor");
+      if (editor) editor.classList.toggle("open");
+    };
+    header.appendChild(promptToggle);
+    group.appendChild(header);
+
+    // 役職ごとの個別行（index 1..count）
+    const personalityList = themeState.personalities[role.role_id] || [];
+    for (let i = 1; i <= count; i++) {
+      const editKey = `${role.role_id}__${i}`;
+      const edit = edits[editKey] || {};
+      const row = _createSettingsRow(role.role_id, i, personalityList, themeState.tones);
+      const pSel = row.querySelector(".personality-select");
+      const tSel = row.querySelector(".tone-select");
+      if (edit.personality) pSel.value = edit.personality;
+      if (edit.tone) tSel.value = edit.tone;
+      group.appendChild(row);
+    }
+
+    // Prompt editor
+    const editor = document.createElement("div");
+    editor.className = "prompt-editor";
+    const hint = document.createElement("div");
+    hint.className = "prompt-editor-hint";
+    hint.textContent = "このテーマのこの役職が使うシステムプロンプト（この実行のみ有効）";
+    editor.appendChild(hint);
+    const ta = document.createElement("textarea");
+    ta.className = "prompt-textarea";
+    ta.setAttribute("data-role-id", role.role_id);
+    const savedPrompt = edits.__prompts?.[role.role_id];
+    ta.value = savedPrompt !== undefined ? savedPrompt : (prompts[role.role_id] || "");
+    editor.appendChild(ta);
+    group.appendChild(editor);
+
+    panel.appendChild(group);
+  }
+}
+
+function changeRoleCount(roleId, delta) {
+  captureCurrentEdits();
+  const themeId = themeState.currentThemeId;
+  const theme = themeState.themes.find(t => t.id === themeId);
+  const role = theme.roles.find(r => r.role_id === roleId);
+  if (!role) return;
+  const current = themeState.countsByTheme[themeId][roleId] || role.default_count;
+  const next = Math.max(role.min_count, Math.min(role.max_count, current + delta));
+  themeState.countsByTheme[themeId][roleId] = next;
+  renderThemeSettings(theme);
+}
+
+function captureCurrentEdits() {
+  // 現在のテーマの UI 状態（personality/tone/prompt）を themeState.editsByTheme に保存
+  const themeId = themeState.currentThemeId;
+  if (!themeId) return;
+  themeState.editsByTheme[themeId] = themeState.editsByTheme[themeId] || {};
+  const bag = themeState.editsByTheme[themeId];
+  bag.__prompts = bag.__prompts || {};
+
+  document.querySelectorAll(".settings-row[data-role]").forEach(row => {
+    const roleId = row.getAttribute("data-role");
+    const index = row.getAttribute("data-index");
+    const pSel = row.querySelector(".personality-select");
+    const tSel = row.querySelector(".tone-select");
+    bag[`${roleId}__${index}`] = {
+      personality: pSel ? pSel.value : "",
+      tone: tSel ? tSel.value : "",
+    };
+  });
+  document.querySelectorAll(".prompt-textarea").forEach(ta => {
+    const roleId = ta.getAttribute("data-role-id");
+    bag.__prompts[roleId] = ta.value;
+  });
 }
 
 // --- ファイルブラウザ ---
@@ -851,39 +1134,62 @@ async function startRun() {
   const btn = document.getElementById("btnSend");
   const sourcePath = document.getElementById("sourcePath").value.trim();
   const requestText = document.getElementById("requestText").value.trim();
+  const themeId = themeState.currentThemeId;
+  const theme = themeState.themes.find(t => t.id === themeId);
 
-  if (!sourcePath) { alert("ソースパスを入力してください"); return; }
-  if (!requestText) { alert("改修要求を入力してください"); return; }
+  if (!theme) { alert("テーマを選択してください"); return; }
+  if (theme.source_path_mode === "required" && !sourcePath) {
+    alert("ソースパスを入力してください"); return;
+  }
+  if (!requestText) { alert("依頼内容を入力してください"); return; }
+
+  captureCurrentEdits();
 
   btn.disabled = true;
   document.getElementById("welcome")?.remove();
 
   // Show user message
-  addSystemMessage("改修要求を送信しました");
+  addSystemMessage(`${theme.name}を送信しました`);
 
-  const formData = new FormData();
-  formData.append("source_path", sourcePath);
-  formData.append("request_text", requestText);
+  // Build roles[] payload
+  const roles = [];
+  const counts = themeState.countsByTheme[themeId] || {};
+  const edits = themeState.editsByTheme[themeId] || {};
+  const editPrompts = edits.__prompts || {};
+  const defaultPrompts = themeState.promptsByTheme[themeId] || {};
+  for (const role of theme.roles) {
+    const n = counts[role.role_id] || role.default_count;
+    for (let i = 1; i <= n; i++) {
+      const e = edits[`${role.role_id}__${i}`] || {};
+      const currentPrompt = editPrompts[role.role_id];
+      const isEdited = currentPrompt !== undefined && currentPrompt !== defaultPrompts[role.role_id];
+      roles.push({
+        role_id: role.role_id,
+        index: i,
+        personality_id: e.personality || null,
+        tone_id: e.tone || null,
+        // Only send prompt_override if user actually edited it
+        prompt_override: isEdited ? currentPrompt : null,
+      });
+    }
+  }
 
-  // Personality & tone settings
-  const _val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
-  formData.append("senior_engineer_personality", _val("seniorEngineerPersonality"));
-  formData.append("pm_personality", _val("pmPersonality"));
-  formData.append("senior_engineer_tone", _val("seniorEngineerTone"));
-  formData.append("pm_tone", _val("pmTone"));
-  const cfg = window._agentConfig || { engineerCount: 1, reviewerCount: 1 };
-  for (let i = 1; i <= cfg.engineerCount; i++) {
-    formData.append(`engineer${i}_personality`, _val(`engineer${i}Personality`));
-    formData.append(`engineer${i}_tone`, _val(`engineer${i}Tone`));
-  }
-  for (let i = 1; i <= cfg.reviewerCount; i++) {
-    formData.append(`reviewer${i}_personality`, _val(`reviewer${i}Personality`));
-    formData.append(`reviewer${i}_tone`, _val(`reviewer${i}Tone`));
-  }
+  const body = {
+    theme_id: themeId,
+    request_text: requestText,
+    source_path: sourcePath,
+    roles,
+  };
 
   try {
-    const res = await fetch("/api/run", { method: "POST", body: formData });
-    const { run_id } = await res.json();
+    const res = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) { alert("実行エラー: " + data.error); btn.disabled = false; return; }
+    const run_id = data.run_id;
     currentRunId = run_id;
 
     const eventSource = new EventSource(`/api/run/${run_id}/events`);

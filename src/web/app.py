@@ -10,7 +10,6 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.events import PipelineEvent
-from src.pipeline import run_pipeline
 from src.schemas import ApprovalRequest, ApprovalResult
 
 app = FastAPI(title="AI Agent Org - Demo")
@@ -101,35 +100,88 @@ async def list_tones() -> list[dict]:
     return [{"id": t.id, "name": t.name, "description": t.description} for t in tones]
 
 
+@app.get("/api/themes")
+async def api_list_themes() -> list[dict]:
+    """要望テーマ一覧を返す。UIのテーマ選択に使用。"""
+    from src.themes import list_themes
+
+    return [t.to_dict() for t in list_themes()]
+
+
+@app.get("/api/themes/{theme_id}/prompts")
+async def api_theme_prompts(theme_id: str) -> dict:
+    """指定テーマの役職ごとのデフォルトプロンプト内容を返す（UIのtextarea初期値）。"""
+    from src.themes import get_theme
+
+    try:
+        theme = get_theme(theme_id)
+    except ValueError as e:
+        return {"error": str(e)}
+    return {role.role_id: role.load_prompt() for role in theme.roles}
+
+
 @app.post("/api/run")
 async def start_run(request: Request) -> dict:
-    form = await request.form()
+    """テーマ対応の実行エンドポイント。JSON body または legacy form data を受け付ける。"""
+    from src.config import load_config
+    from src.themes import get_theme
+    from src.themes.base import ThemeRoleOverride, ThemeRunContext
 
-    request_text = form.get("request_text", "")
-    source_path = form.get("source_path", "")
-    model = form.get("model", "claude-sonnet-4-6")
+    content_type = request.headers.get("content-type", "")
+    is_json = "application/json" in content_type
+
+    if is_json:
+        body = await request.json()
+    else:
+        # Legacy form data (改修要望テーマのみ対応、後方互換)
+        form = await request.form()
+        body = {
+            "theme_id": "modification",
+            "request_text": str(form.get("request_text", "")),
+            "source_path": str(form.get("source_path", "")),
+            "model": str(form.get("model", "claude-sonnet-4-6")),
+            "roles": _legacy_form_to_roles(form),
+        }
+
+    theme_id = body.get("theme_id") or "modification"
+    try:
+        theme = get_theme(theme_id)
+    except ValueError as e:
+        return {"error": str(e)}
 
     run_id = uuid.uuid4().hex[:8]
     queue: Queue[PipelineEvent | None] = Queue()
     _runs[run_id] = queue
 
-    req_text = str(request_text)
+    req_text = str(body.get("request_text", ""))
+    source_path = str(body.get("source_path", ""))
+    model = str(body.get("model", "claude-sonnet-4-6"))
+    raw_roles = body.get("roles") or []
+    role_overrides = [
+        ThemeRoleOverride(
+            role_id=str(r["role_id"]),
+            index=int(r.get("index", 1)),
+            personality_id=r.get("personality_id") or None,
+            tone_id=r.get("tone_id") or None,
+            prompt_override=r.get("prompt_override") or None,
+        )
+        for r in raw_roles
+        if r.get("role_id")
+    ]
 
-    # Personality/tone: 動的にフォームから収集
-    def _get(key: str) -> str:
-        return str(form.get(key, "") or "")
+    # role_counts: roles[]の role_id 出現回数から算出
+    role_counts: dict[str, int] = {}
+    for ov in role_overrides:
+        role_counts[ov.role_id] = role_counts.get(ov.role_id, 0) + 1
 
-    se_personality = _get("senior_engineer_personality")
-    pm_personality = _get("pm_personality")
-    se_tone = _get("senior_engineer_tone")
-    pm_tone = _get("pm_tone")
-
-    eng_pids = [_get(f"engineer{i}_personality") for i in range(1, 10)]
-    eng_pids = [p for p in eng_pids if p]
-    rev_pids = [_get(f"reviewer{i}_personality") for i in range(1, 10)]
-    rev_pids = [p for p in rev_pids if p]
-    eng_tone = _get("engineer1_tone")
-    rev_tone = _get("reviewer1_tone")
+    ctx = ThemeRunContext(
+        request=req_text,
+        source_path=source_path,
+        model=model,
+        output_dir=None,
+        role_overrides=role_overrides,
+        role_counts=role_counts,
+    )
 
     def on_event(event: PipelineEvent) -> None:
         queue.put(event)
@@ -146,23 +198,11 @@ async def start_run(request: Request) -> dict:
         result_data = _approval_requests.pop(run_id)["result"]
         return ApprovalResult(**result_data)
 
+    config = load_config()
+
     def run_in_thread() -> None:
         try:
-            run_pipeline(
-                request=req_text,
-                source_path=str(source_path),
-                model=str(model),
-                on_event=on_event,
-                on_approval=web_approval,
-                senior_engineer_personality_id=se_personality or None,
-                pm_personality_id=pm_personality or None,
-                engineer_personality_ids=eng_pids or None,
-                reviewer_personality_ids=rev_pids or None,
-                senior_engineer_tone_id=se_tone or None,
-                pm_tone_id=pm_tone or None,
-                engineer_tone_id=eng_tone or None,
-                reviewer_tone_id=rev_tone or None,
-            )
+            theme.run(ctx, config=config, on_event=on_event, on_approval=web_approval)
         except Exception as e:
             queue.put(PipelineEvent(type="pipeline_error", data={"error": str(e)}))
         finally:
@@ -171,7 +211,48 @@ async def start_run(request: Request) -> dict:
     thread = Thread(target=run_in_thread, daemon=True)
     thread.start()
 
-    return {"run_id": run_id}
+    return {"run_id": run_id, "theme_id": theme_id}
+
+
+def _legacy_form_to_roles(form) -> list[dict]:  # type: ignore[no-untyped-def]
+    """旧 form 形式を roles[] に変換する（modification theme 専用互換）。"""
+
+    def _get(key: str) -> str:
+        return str(form.get(key, "") or "")
+
+    roles: list[dict] = []
+    se_p = _get("senior_engineer_personality")
+    se_t = _get("senior_engineer_tone")
+    if se_p or se_t:
+        roles.append(
+            {
+                "role_id": "senior_engineer",
+                "index": 1,
+                "personality_id": se_p or None,
+                "tone_id": se_t or None,
+            }
+        )
+    pm_p = _get("pm_personality")
+    pm_t = _get("pm_tone")
+    if pm_p or pm_t:
+        roles.append(
+            {"role_id": "pm", "index": 1, "personality_id": pm_p or None, "tone_id": pm_t or None}
+        )
+    eng_tone = _get("engineer1_tone") or None
+    for i in range(1, 10):
+        eng_p = _get(f"engineer{i}_personality")
+        if eng_p:
+            roles.append(
+                {"role_id": "engineer", "index": i, "personality_id": eng_p, "tone_id": eng_tone}
+            )
+    rev_tone = _get("reviewer1_tone") or None
+    for i in range(1, 10):
+        rev_p = _get(f"reviewer{i}_personality")
+        if rev_p:
+            roles.append(
+                {"role_id": "reviewer", "index": i, "personality_id": rev_p, "tone_id": rev_tone}
+            )
+    return roles
 
 
 @app.post("/api/talk")

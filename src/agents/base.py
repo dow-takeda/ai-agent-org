@@ -28,11 +28,13 @@ class BaseAgent:
         model: str = "claude-sonnet-4-6",
         personality_id: str | None = None,
         tone_id: str | None = None,
+        prompt_override: str | None = None,
     ) -> None:
         self.model = model
         self._system_prompt: str | None = None
         self.personality: Personality | None = None
         self.tone: Tone | None = None
+        self.prompt_override = prompt_override
         if personality_id:
             self.personality = get_personality(self.role, personality_id)
         if tone_id:
@@ -41,8 +43,11 @@ class BaseAgent:
     @property
     def system_prompt(self) -> str:
         if self._system_prompt is None:
-            path = PROMPTS_DIR / self.prompt_file
-            base_prompt = path.read_text(encoding="utf-8")
+            if self.prompt_override is not None:
+                base_prompt = self.prompt_override
+            else:
+                path = PROMPTS_DIR / self.prompt_file
+                base_prompt = path.read_text(encoding="utf-8")
             prompt = base_prompt
             if self.personality:
                 traits_text = "\n".join(f"- {t}" for t in self.personality.traits)

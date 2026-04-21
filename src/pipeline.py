@@ -50,10 +50,16 @@ def _run_senior_engineer_phase(
     step_counter: list[int],
     personality_id: str | None = None,
     tone_id: str | None = None,
+    prompt_override: str | None = None,
 ) -> SeniorEngineerOutput:
     _tprint("🔹 シニアエンジニア 影響範囲分析中...")
     _emit(on_event, "agent_start", agent="senior_engineer")
-    agent = SeniorEngineerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
+    agent = SeniorEngineerAgent(
+        model=model,
+        personality_id=personality_id,
+        tone_id=tone_id,
+        prompt_override=prompt_override,
+    )
 
     output, usage = agent.run(
         request=request,
@@ -83,10 +89,16 @@ def _run_pm_phase(
     step_counter: list[int],
     personality_id: str | None = None,
     tone_id: str | None = None,
+    prompt_override: str | None = None,
 ) -> PMOutput:
     _tprint("🔹 PM エージェント実行中...")
     _emit(on_event, "agent_start", agent="pm")
-    pm_agent = PMAgent(model=model, personality_id=personality_id, tone_id=tone_id)
+    pm_agent = PMAgent(
+        model=model,
+        personality_id=personality_id,
+        tone_id=tone_id,
+        prompt_override=prompt_override,
+    )
 
     extra_context = ""
     if rollback_history:
@@ -126,6 +138,7 @@ def _handle_pm_approval(
     step_counter: list[int],
     personality_id: str | None = None,
     tone_id: str | None = None,
+    prompt_override: str | None = None,
 ) -> PMOutput | None:
     """PM出力のユーザー承認。Noneを返した場合はパイプライン終了。"""
     if on_approval is None:
@@ -172,6 +185,7 @@ def _handle_pm_approval(
             step_counter,
             personality_id=personality_id,
             tone_id=tone_id,
+            prompt_override=prompt_override,
         )
 
     _tprint("  PM承認の再試行上限に到達しました。最新の出力で続行します。")
@@ -189,9 +203,15 @@ def _run_single_engineer(
     personality_id: str | None = None,
     tone_id: str | None = None,
     agent_label: str = "engineer",
+    prompt_override: str | None = None,
 ) -> tuple[EngineerOutput, dict]:
     _emit(on_event, "agent_start", agent=agent_label)
-    eng_agent = EngineerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
+    eng_agent = EngineerAgent(
+        model=model,
+        personality_id=personality_id,
+        tone_id=tone_id,
+        prompt_override=prompt_override,
+    )
 
     extra_context = ""
     if rollback_history:
@@ -250,10 +270,15 @@ def _run_engineer_phase(
     step_counter: list[int],
     engineer_personality_ids: list[str] | None = None,
     tone_id: str | None = None,
+    engineer_count_override: int | None = None,
+    engineer_prompt_overrides: list[str | None] | None = None,
 ) -> EngineerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
-    n = config.engineer_count
+    n = engineer_count_override if engineer_count_override is not None else config.engineer_count
     pids = _resolve_personality_ids(engineer_personality_ids or [], "engineer", n)
+    prompt_overrides = list(engineer_prompt_overrides or [])
+    while len(prompt_overrides) < n:
+        prompt_overrides.append(None)
 
     if n == 1:
         eng_output, _ = _run_single_engineer(
@@ -266,6 +291,7 @@ def _run_engineer_phase(
             step_counter,
             personality_id=pids[0],
             tone_id=tone_id,
+            prompt_override=prompt_overrides[0],
         )
         return eng_output
 
@@ -284,6 +310,7 @@ def _run_engineer_phase(
             personality_id=pids[i],
             tone_id=tone_id,
             agent_label=label,
+            prompt_override=prompt_overrides[i],
         )
         outputs.append(out)
 
@@ -306,7 +333,12 @@ def _run_engineer_phase(
             others = "\n---\n".join(
                 outputs[j].model_dump_json(indent=2) for j in range(n) if j != i
             )
-            agent = EngineerAgent(model=model, personality_id=pids[i], tone_id=tone_id)
+            agent = EngineerAgent(
+                model=model,
+                personality_id=pids[i],
+                tone_id=tone_id,
+                prompt_override=prompt_overrides[i],
+            )
             out, _ = agent.run_discussion(
                 own_output=outputs[i].model_dump_json(indent=2),
                 other_output=others,
@@ -377,9 +409,15 @@ def _run_single_reviewer(
     personality_id: str | None = None,
     tone_id: str | None = None,
     agent_label: str = "reviewer",
+    prompt_override: str | None = None,
 ) -> tuple[ReviewerOutput, dict]:
     _emit(on_event, "agent_start", agent=agent_label)
-    rev_agent = ReviewerAgent(model=model, personality_id=personality_id, tone_id=tone_id)
+    rev_agent = ReviewerAgent(
+        model=model,
+        personality_id=personality_id,
+        tone_id=tone_id,
+        prompt_override=prompt_override,
+    )
 
     rev_output, rev_usage = rev_agent.run(
         request=request,
@@ -414,11 +452,16 @@ def _run_reviewer_phase(
     step_counter: list[int],
     reviewer_personality_ids: list[str] | None = None,
     tone_id: str | None = None,
+    reviewer_count_override: int | None = None,
+    reviewer_prompt_overrides: list[str | None] | None = None,
 ) -> ReviewerOutput:
     pm_output_text = pm_output.model_dump_json(indent=2)
     eng_output_text = eng_output.model_dump_json(indent=2)
-    n = config.reviewer_count
+    n = reviewer_count_override if reviewer_count_override is not None else config.reviewer_count
     pids = _resolve_personality_ids(reviewer_personality_ids or [], "reviewer", n)
+    prompt_overrides = list(reviewer_prompt_overrides or [])
+    while len(prompt_overrides) < n:
+        prompt_overrides.append(None)
 
     if n == 1:
         rev_output, _ = _run_single_reviewer(
@@ -433,6 +476,7 @@ def _run_reviewer_phase(
             step_counter,
             personality_id=pids[0],
             tone_id=tone_id,
+            prompt_override=prompt_overrides[0],
         )
         return rev_output
 
@@ -453,6 +497,7 @@ def _run_reviewer_phase(
             personality_id=pids[i],
             tone_id=tone_id,
             agent_label=label,
+            prompt_override=prompt_overrides[i],
         )
         outputs.append(out)
 
@@ -475,7 +520,12 @@ def _run_reviewer_phase(
             others = "\n---\n".join(
                 outputs[j].model_dump_json(indent=2) for j in range(n) if j != i
             )
-            agent = ReviewerAgent(model=model, personality_id=pids[i], tone_id=tone_id)
+            agent = ReviewerAgent(
+                model=model,
+                personality_id=pids[i],
+                tone_id=tone_id,
+                prompt_override=prompt_overrides[i],
+            )
             out, _ = agent.run_discussion(
                 own_output=outputs[i].model_dump_json(indent=2),
                 other_output=others,
@@ -628,6 +678,12 @@ def run_pipeline(
     engineer_tone_id: str | None = None,
     reviewer_tone_id: str | None = None,
     senior_engineer_tone_id: str | None = None,
+    senior_engineer_prompt_override: str | None = None,
+    pm_prompt_override: str | None = None,
+    engineer_prompt_overrides: list[str | None] | None = None,
+    reviewer_prompt_overrides: list[str | None] | None = None,
+    engineer_count_override: int | None = None,
+    reviewer_count_override: int | None = None,
 ) -> Path:
     """Senior Engineer → PM → Engineer → Reviewer のパイプラインを実行する。
 
@@ -679,6 +735,7 @@ def run_pipeline(
         step_counter,
         personality_id=se_pid,
         tone_id=se_tid,
+        prompt_override=senior_engineer_prompt_override,
     )
     senior_output_text = senior_output.model_dump_json(indent=2)
 
@@ -693,6 +750,7 @@ def run_pipeline(
         step_counter,
         personality_id=pm_pid,
         tone_id=pm_tid,
+        prompt_override=pm_prompt_override,
     )
 
     # --- ユーザー承認 ---
@@ -709,6 +767,7 @@ def run_pipeline(
         step_counter,
         personality_id=pm_pid,
         tone_id=pm_tid,
+        prompt_override=pm_prompt_override,
     )
 
     if pm_output is None:
@@ -735,6 +794,8 @@ def run_pipeline(
             step_counter,
             engineer_personality_ids=eng_pids,
             tone_id=eng_tid,
+            engineer_count_override=engineer_count_override,
+            engineer_prompt_overrides=engineer_prompt_overrides,
         )
 
         # Engineer差し戻し提案チェック
@@ -774,6 +835,7 @@ def run_pipeline(
                     step_counter,
                     personality_id=pm_pid,
                     tone_id=pm_tid,
+                    prompt_override=pm_prompt_override,
                 )
                 pm_output = _handle_pm_approval(
                     pm_output,
@@ -788,6 +850,7 @@ def run_pipeline(
                     step_counter,
                     personality_id=pm_pid,
                     tone_id=pm_tid,
+                    prompt_override=pm_prompt_override,
                 )
                 if pm_output is None:
                     break
@@ -812,6 +875,8 @@ def run_pipeline(
             step_counter,
             reviewer_personality_ids=rev_pids,
             tone_id=rev_tid,
+            reviewer_count_override=reviewer_count_override,
+            reviewer_prompt_overrides=reviewer_prompt_overrides,
         )
 
         # Reviewer差し戻し提案チェック
@@ -854,6 +919,7 @@ def run_pipeline(
                         step_counter,
                         personality_id=pm_pid,
                         tone_id=pm_tid,
+                        prompt_override=pm_prompt_override,
                     )
                     pm_output = _handle_pm_approval(
                         pm_output,
@@ -868,6 +934,7 @@ def run_pipeline(
                         step_counter,
                         personality_id=pm_pid,
                         tone_id=pm_tid,
+                        prompt_override=pm_prompt_override,
                     )
                     if pm_output is None:
                         break
