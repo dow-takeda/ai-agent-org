@@ -68,3 +68,12 @@ class ReviewerOutput(BaseModel):
     rollback_proposal: RollbackProposal | None = Field(
         default=None, description="上流への差し戻し提案（根本的な問題がある場合のみ）"
     )
+
+
+class TalkMessage(BaseModel):
+    role: str = Field(description="発言者: 'user' か 'assistant'")
+    content: str = Field(description="発言内容")
+
+
+class TalkResponse(BaseModel):
+    reply: str = Field(description="エージェントの応答文（指定された口調・パーソナリティで）")

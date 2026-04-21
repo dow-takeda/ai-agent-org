@@ -30,6 +30,12 @@ async def index() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
+@app.get("/talk", response_class=HTMLResponse)
+async def talk_page() -> HTMLResponse:
+    html = (STATIC_DIR / "talk.html").read_text(encoding="utf-8")
+    return HTMLResponse(content=html)
+
+
 @app.get("/api/config")
 async def get_config() -> dict:
     """パイプライン設定を返す。"""
@@ -166,6 +172,43 @@ async def start_run(request: Request) -> dict:
     thread.start()
 
     return {"run_id": run_id}
+
+
+@app.post("/api/talk")
+async def talk(request: Request) -> dict:
+    """談話室の単発リクエスト。会話履歴と選択情報を受け取り、応答を返す。"""
+    from src.schemas import TalkMessage
+    from src.talk import ROLE_DISPLAY_NAMES, TalkAgent
+
+    body = await request.json()
+    role = str(body.get("role", ""))
+    personality_id = body.get("personality_id") or None
+    tone_id = body.get("tone_id") or None
+    model = str(body.get("model", "claude-sonnet-4-6"))
+    raw_messages = body.get("messages", [])
+
+    if role not in ROLE_DISPLAY_NAMES:
+        return {"error": f"invalid role: {role}"}
+    if not raw_messages:
+        return {"error": "messages is required"}
+
+    try:
+        messages = [TalkMessage(**m) for m in raw_messages]
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"invalid messages: {e}"}
+
+    try:
+        agent = TalkAgent(
+            role=role,
+            model=model,
+            personality_id=personality_id,
+            tone_id=tone_id,
+        )
+        result, _usage = agent.chat(messages)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    return {"reply": result.reply}
 
 
 @app.post("/api/run/{run_id}/approve")

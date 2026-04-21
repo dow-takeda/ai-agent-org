@@ -19,6 +19,56 @@ class TestIndexPage:
         assert "AI改修チーム" in response.text
         assert "text/html" in response.headers["content-type"]
 
+    def test_index_has_talk_link(self):
+        response = client.get("/")
+        assert "/talk" in response.text
+        assert "談話室" in response.text
+
+
+class TestTalkPage:
+    def test_get_talk(self):
+        response = client.get("/talk")
+        assert response.status_code == 200
+        assert "談話室" in response.text
+        assert "text/html" in response.headers["content-type"]
+
+
+class TestTalkAPI:
+    def test_talk_missing_role(self):
+        response = client.post(
+            "/api/talk",
+            json={"messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert response.status_code == 200
+        assert "error" in response.json()
+
+    def test_talk_missing_messages(self):
+        response = client.post(
+            "/api/talk",
+            json={"role": "pm", "messages": []},
+        )
+        assert response.json().get("error") == "messages is required"
+
+    def test_talk_success(self):
+        from src.schemas import TalkResponse
+
+        with patch("src.talk.TalkAgent.chat") as mock_chat:
+            mock_chat.return_value = (
+                TalkResponse(reply="あら、こんにちは！"),
+                {"input_tokens": 10, "output_tokens": 5},
+            )
+            response = client.post(
+                "/api/talk",
+                json={
+                    "role": "pm",
+                    "personality_id": "visionary",
+                    "tone_id": "onee",
+                    "messages": [{"role": "user", "content": "やあ"}],
+                },
+            )
+        assert response.status_code == 200
+        assert response.json() == {"reply": "あら、こんにちは！"}
+
 
 class TestStartRun:
     def test_start_run_returns_run_id(self):
