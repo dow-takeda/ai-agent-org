@@ -28,6 +28,16 @@
   }
   .header-icon { font-size: 24px; }
   .header-members { font-size: 12px; font-weight: 400; opacity: 0.8; }
+  .header-nav { margin-left: auto; font-size: 13px; font-weight: 500; }
+  .header-nav a {
+    color: #fff;
+    text-decoration: none;
+    padding: 6px 12px;
+    border: 1px solid rgba(255,255,255,0.5);
+    border-radius: 16px;
+    transition: background 0.15s;
+  }
+  .header-nav a:hover { background: rgba(255,255,255,0.15); }
 
   /* Chat area */
   .chat-area {
@@ -430,6 +440,7 @@
     AI改修チーム
     <div class="header-members">Senior Engineer, PM, Engineer, Reviewer</div>
   </div>
+  <div class="header-nav"><a href="/talk">🗨 談話室へ</a></div>
 </div>
 
 <div class="chat-area" id="chatArea">

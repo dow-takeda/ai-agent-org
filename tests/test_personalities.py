@@ -84,6 +84,16 @@ class TestTones:
         with pytest.raises(ValueError, match="not found"):
             get_tone("nonexistent")
 
+    def test_tone_prompts_are_enriched(self):
+        """口調プロンプトが十分な長さと多様性指示を持つこと（Issue #28リグレッション防止）。"""
+        for t in load_tones():
+            assert len(t.prompt_instruction) >= 400, (
+                f"Tone '{t.id}' prompt is too short ({len(t.prompt_instruction)} chars)"
+            )
+            assert "バリエーション" in t.prompt_instruction, (
+                f"Tone '{t.id}' prompt lacks variation instruction"
+            )
+
 
 class TestAgentToneIntegration:
     def test_agent_with_tone(self):
