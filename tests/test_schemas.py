@@ -1,6 +1,10 @@
 from src.schemas import (
     ApprovalRequest,
     ApprovalResult,
+    AuditFinding,
+    AuditReviewerOutput,
+    AuditStatistics,
+    CodebaseAuditReport,
     CodePatch,
     EngineerOutput,
     InvestigationReport,
@@ -193,3 +197,91 @@ def test_reviewer_output_with_rollback_proposal():
     )
     assert output.rollback_proposal is not None
     assert output.rollback_proposal.source_agent == "reviewer"
+
+
+def test_codebase_audit_report_roundtrip():
+    data = {
+        "summary": "調査したわよ〜",
+        "scope": "依存ライブラリのEOLとライセンス互換性",
+        "findings": [
+            {
+                "category": "dependency",
+                "severity": "high",
+                "location": "requirements.txt: numpy==1.18",
+                "description": "numpy 1.18 は EOL",
+                "recommendation": "numpy>=1.26 に更新",
+            },
+            {
+                "category": "license",
+                "severity": "medium",
+                "location": "node_modules/foo",
+                "description": "GPL-3.0 と MIT 互換性懸念",
+                "recommendation": "代替ライブラリ検討",
+            },
+        ],
+        "statistics": {
+            "lines_of_code": 12000,
+            "module_count": 32,
+            "dependency_count": 48,
+            "notes": [],
+        },
+        "recommended_actions": ["EOL 依存の更新", "ライセンス棚卸し"],
+        "rollback_proposal": None,
+    }
+    report = CodebaseAuditReport.model_validate(data)
+    assert report.scope.startswith("依存")
+    assert len(report.findings) == 2
+    assert isinstance(report.findings[0], AuditFinding)
+    assert isinstance(report.statistics, AuditStatistics)
+    assert report.model_dump() == data
+
+
+def test_codebase_audit_report_minimal():
+    """statistics 省略でも妥当なこと（任意フィールド）。"""
+    report = CodebaseAuditReport(
+        summary="サマリ",
+        scope="スコープ",
+        findings=[],
+        recommended_actions=[],
+    )
+    assert report.statistics is None
+    assert report.rollback_proposal is None
+
+
+def test_audit_reviewer_output_pass():
+    data = {
+        "summary": "レビュー完了",
+        "review_result": "PASS",
+        "concerns": [],
+        "missing_checks": [],
+        "rollback_proposal": None,
+    }
+    result = AuditReviewerOutput.model_validate(data)
+    assert result.review_result == "PASS"
+    assert result.model_dump() == data
+
+
+def test_audit_reviewer_output_fail():
+    data = {
+        "summary": "観点漏れあり",
+        "review_result": "FAIL",
+        "concerns": ["severity の付与根拠が薄い"],
+        "missing_checks": ["フロント依存のCVE未確認", "LICENSE整合性未検証"],
+        "rollback_proposal": None,
+    }
+    result = AuditReviewerOutput.model_validate(data)
+    assert result.review_result == "FAIL"
+    assert "LICENSE整合性未検証" in result.missing_checks
+
+
+def test_audit_finding_categories():
+    """category は dependency / license / security / quality のいずれか。"""
+    for cat in ("dependency", "license", "security", "quality"):
+        f = AuditFinding(
+            category=cat,
+            severity="low",
+            location="x",
+            description="y",
+            recommendation="z",
+        )
+        assert f.category == cat

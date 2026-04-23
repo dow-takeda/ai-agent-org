@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from src.themes.base import RoleSlot, SourcePathMode, Theme
+from src.themes.codebase_audit import build_codebase_audit_theme
 from src.themes.investigation import build_investigation_theme
 from src.themes.modification import build_modification_theme
 
 _THEMES: dict[str, Theme] = {
     "modification": build_modification_theme(),
     "investigation": build_investigation_theme(),
+    "codebase_audit": build_codebase_audit_theme(),
 }
 
 

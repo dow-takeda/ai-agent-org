@@ -79,6 +79,7 @@
   .avatar-engineer { background: #5B86E5; }
   .avatar-reviewer { background: #FF6B6B; }
   .avatar-senior_engineer { background: #9B59B6; }
+  .avatar-analyst { background: #F39C12; }
 
   .msg-content { max-width: 75%; }
 
@@ -102,6 +103,7 @@
   .bubble-engineer { background: #D6E4FF; color: #1a1a1a; }
   .bubble-reviewer { background: #FFE0E0; color: #1a1a1a; }
   .bubble-senior_engineer { background: #E8D5F5; color: #1a1a1a; }
+  .bubble-analyst { background: #FFE9C8; color: #1a1a1a; }
 
   .bubble h4 { font-size: 13px; font-weight: 700; margin: 8px 0 4px; color: #555; }
   .bubble h4:first-child { margin-top: 0; }
@@ -584,15 +586,17 @@
 <script>
 const AGENTS = {
   senior_engineer: { name: "Senior Eng", avatar: "🏗️", bubbleClass: "bubble-senior_engineer", avatarClass: "avatar-senior_engineer" },
+  senior_tiebreak: { name: "Senior (裁定)", avatar: "⚖️", bubbleClass: "bubble-senior_engineer", avatarClass: "avatar-senior_engineer" },
   pm:            { name: "PM",           avatar: "📋", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
   engineer:      { name: "Engineer",     avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" },
   reviewer:      { name: "Reviewer",     avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" },
   pm_tiebreak:   { name: "PM (裁定)",    avatar: "⚖️", bubbleClass: "bubble-pm",       avatarClass: "avatar-pm" },
+  analyst:       { name: "Analyst",      avatar: "🔬", bubbleClass: "bubble-analyst",  avatarClass: "avatar-analyst" },
 };
 
 function _getAgent(key) {
   if (AGENTS[key]) return AGENTS[key];
-  // engineer_3, reviewer_4 など動的エージェントにフォールバック
+  // engineer_3, reviewer_4, analyst_2 など動的エージェントにフォールバック
   if (key.startsWith("engineer")) {
     const num = key.replace("engineer_", "");
     return { name: `Engineer ${num}`, avatar: "🔧", bubbleClass: "bubble-engineer", avatarClass: "avatar-engineer" };
@@ -600,6 +604,10 @@ function _getAgent(key) {
   if (key.startsWith("reviewer")) {
     const num = key.replace("reviewer_", "");
     return { name: `Reviewer ${num}`, avatar: "🔍", bubbleClass: "bubble-reviewer", avatarClass: "avatar-reviewer" };
+  }
+  if (key.startsWith("analyst")) {
+    const num = key.replace("analyst_", "");
+    return { name: `Analyst ${num}`, avatar: "🔬", bubbleClass: "bubble-analyst", avatarClass: "avatar-analyst" };
   }
   return { name: key, avatar: "🤖", bubbleClass: "bubble-pm", avatarClass: "avatar-pm" };
 }

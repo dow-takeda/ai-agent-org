@@ -107,3 +107,56 @@ class InvestigationReviewerOutput(BaseModel):
     rollback_proposal: RollbackProposal | None = Field(
         default=None, description="上流（Investigator または Senior）への差し戻し提案"
     )
+
+
+class AuditFinding(BaseModel):
+    """コードベース調査テーマで Analyst が個別に挙げる指摘事項。"""
+
+    category: str = Field(description="観点カテゴリ: dependency / license / security / quality")
+    severity: str = Field(description="深刻度: critical / high / medium / low")
+    location: str = Field(description="該当箇所（ファイルパス、設定キー、依存名など）")
+    description: str = Field(description="指摘内容の説明")
+    recommendation: str = Field(description="推奨対応（具体的なアクション）")
+
+
+class AuditStatistics(BaseModel):
+    """コードベース調査テーマの参考統計値（任意）。"""
+
+    lines_of_code: int | None = Field(default=None, description="概算LOC")
+    module_count: int | None = Field(default=None, description="モジュール（ディレクトリ）数")
+    dependency_count: int | None = Field(default=None, description="依存関係の総数")
+    notes: list[str] = Field(default_factory=list, description="その他の参考メトリクス・補足")
+
+
+class CodebaseAuditReport(BaseModel):
+    """コードベース調査テーマで Analyst が出力する調査報告書。"""
+
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
+    scope: str = Field(description="今回の調査対象スコープ（観点・範囲・除外）")
+    findings: list[AuditFinding] = Field(
+        description="観点別の指摘事項一覧（依存・ライセンス・セキュリティ・品質）"
+    )
+    statistics: AuditStatistics | None = Field(
+        default=None, description="コードベースに関する参考統計（任意）"
+    )
+    recommended_actions: list[str] = Field(
+        description="優先順位付き推奨アクション一覧（修正実装は含めない）"
+    )
+    rollback_proposal: RollbackProposal | None = Field(
+        default=None,
+        description="シニアエンジニアへの差し戻し提案（調査範囲の見直しが必要な場合）",
+    )
+
+
+class AuditReviewerOutput(BaseModel):
+    """コードベース調査テーマで Reviewer が出力するレビュー結果。"""
+
+    summary: str = Field(description="サマリ発言（指定された口調で簡潔に1〜3文）")
+    review_result: str = Field(description="PASS または FAIL")
+    concerns: list[str] = Field(description="指摘事項（根拠不足・観点漏れなど）")
+    missing_checks: list[str] = Field(
+        description="追加で確認すべき観点・カテゴリ・対象（EOL確認漏れ、ライセンス未確認など）"
+    )
+    rollback_proposal: RollbackProposal | None = Field(
+        default=None, description="上流（Analyst または Senior）への差し戻し提案"
+    )
