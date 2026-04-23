@@ -78,6 +78,7 @@
   .avatar-engineer { background: #5B86E5; }
   .avatar-reviewer { background: #FF6B6B; }
   .avatar-senior_engineer { background: #9B59B6; }
+  .avatar-analyst { background: #F39C12; }
 
   .msg-content { max-width: 75%; }
   .msg-row.user .msg-content { text-align: right; }
@@ -105,6 +106,7 @@
   .bubble-engineer { background: #D6E4FF; color: #1a1a1a; }
   .bubble-reviewer { background: #FFE0E0; color: #1a1a1a; }
   .bubble-senior_engineer { background: #E8D5F5; color: #1a1a1a; }
+  .bubble-analyst { background: #FFE9C8; color: #1a1a1a; }
   .bubble-user {
     background: #fff;
     color: #1a1a1a;
@@ -250,6 +252,7 @@
       <option value="engineer">🔧 Engineer</option>
       <option value="reviewer">🔍 Reviewer</option>
       <option value="senior_engineer">🏗️ Senior Engineer</option>
+      <option value="analyst">🔬 Analyst</option>
     </select>
     <label>パーソナリティ</label>
     <select id="personalitySelect"><option value="">（指定なし）</option></select>
@@ -270,6 +273,7 @@ const ROLE_META = {
   engineer:        { name: "Engineer",         avatar: "🔧", bubbleClass: "bubble-engineer",        avatarClass: "avatar-engineer" },
   reviewer:        { name: "Reviewer",         avatar: "🔍", bubbleClass: "bubble-reviewer",        avatarClass: "avatar-reviewer" },
   senior_engineer: { name: "Senior Engineer",  avatar: "🏗️", bubbleClass: "bubble-senior_engineer", avatarClass: "avatar-senior_engineer" },
+  analyst:         { name: "Analyst",          avatar: "🔬", bubbleClass: "bubble-analyst",         avatarClass: "avatar-analyst" },
 };
 
 let personalities = {};

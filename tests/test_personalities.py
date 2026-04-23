@@ -14,7 +14,7 @@ from src.personalities import (
 
 ROLES = ("pm", "engineer", "reviewer")
 MIN_PERSONALITIES = 7
-ALL_ROLES = ("pm", "engineer", "reviewer", "senior_engineer", "investigator")
+ALL_ROLES = ("pm", "engineer", "reviewer", "senior_engineer", "investigator", "analyst")
 
 
 class TestLoadPersonalities:

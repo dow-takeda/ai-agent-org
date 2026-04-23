@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 PERSONALITIES_DIR = Path(__file__).resolve().parent.parent / "personalities"
 
-VALID_ROLES = ("pm", "engineer", "reviewer", "senior_engineer", "investigator")
+VALID_ROLES = ("pm", "engineer", "reviewer", "senior_engineer", "investigator", "analyst")
 
 
 class Personality(BaseModel):

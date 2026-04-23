@@ -11,6 +11,7 @@ class TestRegistry:
         ids = {t.id for t in list_themes()}
         assert "modification" in ids
         assert "investigation" in ids
+        assert "codebase_audit" in ids
 
     def test_get_theme_returns_theme(self):
         t = get_theme("modification")
@@ -56,6 +57,33 @@ class TestInvestigationTheme:
             assert len(content) > 30
 
 
+class TestCodebaseAuditTheme:
+    def test_fields(self):
+        t = get_theme("codebase_audit")
+        assert t.name == "コードベース調査"
+        assert t.source_path_mode == SourcePathMode.REQUIRED
+        role_ids = [r.role_id for r in t.roles]
+        assert role_ids == ["senior_engineer", "analyst", "reviewer"]
+        analyst_role = t.get_role("analyst")
+        assert analyst_role.default_count == 3
+        assert analyst_role.min_count == 1
+        assert analyst_role.max_count >= 3
+
+    def test_prompts_exist(self):
+        t = get_theme("codebase_audit")
+        for role in t.roles:
+            content = role.load_prompt()
+            assert len(content) > 30
+
+    def test_senior_tiebreak_prompt_exists(self):
+        from pathlib import Path
+
+        prompts_root = (
+            Path(__file__).resolve().parent.parent / "prompts" / "themes" / "codebase_audit"
+        )
+        assert (prompts_root / "senior_tiebreak.md").exists()
+
+
 class TestThemeSerialization:
     def test_to_dict_excludes_callable(self):
         t = get_theme("modification")
@@ -72,6 +100,15 @@ class TestThemeSerialization:
         inv = next(r for r in d["roles"] if r["role_id"] == "investigator")
         assert inv["max_count"] >= 2
         assert inv["min_count"] == 1
+
+    def test_codebase_audit_to_dict(self):
+        t = get_theme("codebase_audit")
+        d = t.to_dict()
+        assert "run" not in d
+        assert d["id"] == "codebase_audit"
+        analyst = next(r for r in d["roles"] if r["role_id"] == "analyst")
+        assert analyst["default_count"] == 3
+        assert analyst["max_count"] >= 3
 
 
 class TestThemeRunContext:
